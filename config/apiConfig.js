@@ -49,6 +49,8 @@ export const API_CONFIG = {
       getById: (id) => `/trips/${id}`,
       create: "/trips",
       start: (id) => `/trips/${id}/start`,
+      pause: (id) => `/trips/${id}/pause`,
+      resume: (id) => `/trips/${id}/resume`,
       end: (id) => `/trips/${id}/end`,
       track: (id) => `/trips/${id}/track`,
       assign: (id) => `/trips/${id}/assign`,

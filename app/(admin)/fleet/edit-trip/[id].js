@@ -14,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import Toast from "react-native-toast-message";
 import { Picker } from "@react-native-picker/picker";
 import { TripService, GeofenceService } from "../../../../services";
+import apiClient from "../../../../services/api/apiClient";
 
 export default function EditTrip() {
   const router = useRouter();
@@ -25,10 +26,12 @@ export default function EditTrip() {
   // Form state
   const [status, setStatus] = useState("");
   const [selectedGeofences, setSelectedGeofences] = useState([]);
+  const [selectedDrivers, setSelectedDrivers] = useState([]);
   const [notes, setNotes] = useState("");
 
   // Data lists
   const [geofences, setGeofences] = useState([]);
+  const [drivers, setDrivers] = useState([]);
 
   useEffect(() => {
     loadData();
@@ -37,9 +40,10 @@ export default function EditTrip() {
   const loadData = async () => {
     try {
       setLoadingData(true);
-      const [tripRes, geofencesRes] = await Promise.all([
+      const [tripRes, geofencesRes, driversRes] = await Promise.all([
         TripService.getTripById(id),
         GeofenceService.getAllGeofences(),
+        apiClient.get("/drivers"),
       ]);
 
       if (tripRes.success) {
@@ -47,6 +51,12 @@ export default function EditTrip() {
         setTrip(tripData);
         setStatus(tripData.status);
         setSelectedGeofences(tripData.geofences?.map((g) => g._id || g) || []);
+        // Handle both single driver and multiple drivers
+        if (tripData.drivers && tripData.drivers.length > 0) {
+          setSelectedDrivers(tripData.drivers.map((d) => d._id || d));
+        } else if (tripData.driver) {
+          setSelectedDrivers([tripData.driver._id || tripData.driver]);
+        }
         setNotes(tripData.notes || "");
       } else {
         throw new Error(tripRes.message || "Failed to load trip");
@@ -54,6 +64,10 @@ export default function EditTrip() {
 
       if (geofencesRes.success) {
         setGeofences(geofencesRes.data || []);
+      }
+
+      if (driversRes.success) {
+        setDrivers(driversRes.data || []);
       }
     } catch (error) {
       Toast.show({
@@ -77,6 +91,16 @@ export default function EditTrip() {
     });
   };
 
+  const toggleDriver = (driverId) => {
+    setSelectedDrivers((prev) => {
+      if (prev.includes(driverId)) {
+        return prev.filter((id) => id !== driverId);
+      } else {
+        return [...prev, driverId];
+      }
+    });
+  };
+
   const handleUpdate = async () => {
     if (loading) return;
 
@@ -87,6 +111,7 @@ export default function EditTrip() {
         status,
         geofences: selectedGeofences,
         notes: notes.trim(),
+        drivers: selectedDrivers,
       };
 
       const response = await TripService.updateTrip(id, updateData);
@@ -453,14 +478,35 @@ export default function EditTrip() {
           </View>
 
           {/* Edit Status */}
-          <View className="bg-white rounded-2xl p-4 mb-4 shadow-sm">
+          <View
+            style={{
+              backgroundColor: "#F9FAFB",
+              borderRadius: 16,
+              padding: 16,
+              marginBottom: 16,
+              borderWidth: 1,
+              borderColor: "#E5E7EB",
+            }}
+          >
             <Text
-              className="text-gray-700 mb-2"
-              style={{ fontFamily: "Poppins", fontWeight: "600" }}
+              style={{
+                fontFamily: "Poppins",
+                fontWeight: "600",
+                color: "#374151",
+                marginBottom: 8,
+              }}
             >
               Update Status
             </Text>
-            <View className="border border-gray-300 rounded-lg overflow-hidden">
+            <View
+              style={{
+                borderWidth: 1,
+                borderColor: "#D1D5DB",
+                borderRadius: 8,
+                overflow: "hidden",
+                backgroundColor: "#FFFFFF",
+              }}
+            >
               <Picker
                 selectedValue={status}
                 onValueChange={(value) => setStatus(value)}
@@ -474,18 +520,148 @@ export default function EditTrip() {
             </View>
           </View>
 
-          {/* Geofence Selection */}
-          <View className="bg-white rounded-2xl p-4 mb-4 shadow-sm">
+          {/* Assign Drivers Section */}
+          <View
+            style={{
+              backgroundColor: "#F9FAFB",
+              borderRadius: 16,
+              padding: 16,
+              marginBottom: 16,
+              borderWidth: 1,
+              borderColor: "#E5E7EB",
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 12,
+              }}
+            >
+              <Text
+                style={{
+                  fontFamily: "Poppins",
+                  fontWeight: "600",
+                  color: "#374151",
+                }}
+              >
+                Assign Drivers
+              </Text>
+              <View
+                style={{
+                  backgroundColor: "#DBEAFE",
+                  paddingHorizontal: 10,
+                  paddingVertical: 4,
+                  borderRadius: 12,
+                }}
+              >
+                <Text
+                  style={{
+                    fontFamily: "Poppins",
+                    fontSize: 12,
+                    color: "#1D4ED8",
+                    fontWeight: "600",
+                  }}
+                >
+                  {selectedDrivers.length} selected
+                </Text>
+              </View>
+            </View>
             <Text
-              className="text-gray-700 mb-3"
-              style={{ fontFamily: "Poppins", fontWeight: "600" }}
+              style={{
+                fontFamily: "Poppins",
+                fontSize: 12,
+                color: "#6B7280",
+                marginBottom: 12,
+              }}
+            >
+              Select one or more drivers for this trip. Each driver can only
+              have one active trip.
+            </Text>
+            {drivers.length === 0 ? (
+              <Text
+                style={{
+                  fontFamily: "Poppins",
+                  fontSize: 14,
+                  color: "#9CA3AF",
+                  textAlign: "center",
+                  paddingVertical: 16,
+                }}
+              >
+                No drivers available
+              </Text>
+            ) : (
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                {drivers.map((driver) => {
+                  const isSelected = selectedDrivers.includes(driver._id);
+                  return (
+                    <TouchableOpacity
+                      key={driver._id}
+                      onPress={() => toggleDriver(driver._id)}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        backgroundColor: isSelected ? "#1D4ED8" : "#FFFFFF",
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderRadius: 20,
+                        borderWidth: 1,
+                        borderColor: isSelected ? "#1D4ED8" : "#D1D5DB",
+                      }}
+                    >
+                      <Ionicons
+                        name={
+                          isSelected ? "checkmark-circle" : "person-outline"
+                        }
+                        size={16}
+                        color={isSelected ? "#FFFFFF" : "#6B7280"}
+                      />
+                      <Text
+                        style={{
+                          fontFamily: "Poppins",
+                          fontSize: 13,
+                          color: isSelected ? "#FFFFFF" : "#374151",
+                          marginLeft: 6,
+                        }}
+                      >
+                        {driver.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+
+          {/* Geofence Selection */}
+          <View
+            style={{
+              backgroundColor: "#F9FAFB",
+              borderRadius: 16,
+              padding: 16,
+              marginBottom: 16,
+              borderWidth: 1,
+              borderColor: "#E5E7EB",
+            }}
+          >
+            <Text
+              style={{
+                fontFamily: "Poppins",
+                fontWeight: "600",
+                color: "#374151",
+                marginBottom: 12,
+              }}
             >
               Assign Geofences (Optional)
             </Text>
             {geofences.length === 0 ? (
               <Text
-                className="text-gray-500 text-sm"
-                style={{ fontFamily: "Poppins" }}
+                style={{
+                  fontFamily: "Poppins",
+                  fontSize: 14,
+                  color: "#6B7280",
+                }}
               >
                 No geofences available.
               </Text>
@@ -494,11 +670,20 @@ export default function EditTrip() {
                 <TouchableOpacity
                   key={geofence._id}
                   onPress={() => toggleGeofence(geofence._id)}
-                  className={`flex-row items-center p-3 mb-2 rounded-lg border ${
-                    selectedGeofences.includes(geofence._id)
-                      ? "bg-amber-50 border-amber-400"
-                      : "bg-gray-50 border-gray-200"
-                  }`}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    padding: 12,
+                    marginBottom: 8,
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    backgroundColor: selectedGeofences.includes(geofence._id)
+                      ? "#FEF3C7"
+                      : "#FFFFFF",
+                    borderColor: selectedGeofences.includes(geofence._id)
+                      ? "#F59E0B"
+                      : "#E5E7EB",
+                  }}
                 >
                   <Ionicons
                     name={
@@ -513,13 +698,22 @@ export default function EditTrip() {
                         : "#9CA3AF"
                     }
                   />
-                  <View className="ml-3 flex-1">
-                    <Text style={{ fontFamily: "Poppins", fontWeight: "600" }}>
+                  <View style={{ marginLeft: 12, flex: 1 }}>
+                    <Text
+                      style={{
+                        fontFamily: "Poppins",
+                        fontWeight: "600",
+                        color: "#1F2937",
+                      }}
+                    >
                       {geofence.name}
                     </Text>
                     <Text
-                      className="text-gray-500 text-xs"
-                      style={{ fontFamily: "Poppins" }}
+                      style={{
+                        fontFamily: "Poppins",
+                        fontSize: 12,
+                        color: "#6B7280",
+                      }}
                     >
                       {geofence.type} • {geofence.timeLimit || 30} min radius
                     </Text>

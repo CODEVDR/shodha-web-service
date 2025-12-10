@@ -8,7 +8,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { TrackingService } from "../../../services";
 import { MAP_CONFIG } from "../../../config/mapConfig";
 import Toast from "react-native-toast-message";
@@ -19,27 +19,17 @@ if (Platform.OS !== "web") {
   WebView = require("react-native-webview").WebView;
 }
 
-// MapLibre native module not available in Expo Go — will use WebView MapLibre GL JS
-
 export default function LiveTracking() {
   const [trucks, setTrucks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedTruck, setSelectedTruck] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [webViewRef, setWebViewRef] = useState(null);
+  const webViewRef = useRef(null);
+  const mapLoadedRef = useRef(false);
+  const trucksRef = useRef([]); // Add ref to track trucks without causing rerenders
 
   // HTML generator for MapLibre GL JS fallback - Simple version
-  function generateMapHtml(trucks = [], MAP_CONFIG) {
-    const trucksData = JSON.stringify(
-      (trucks || []).map((t) => ({
-        id: t._id,
-        latitude: t.currentLocation?.latitude || null,
-        longitude: t.currentLocation?.longitude || null,
-        status: t.status,
-        truckNumber: t.truckNumber || t.registrationNumber || "Unknown",
-      }))
-    );
-
+  const generateMapHtml = useCallback((MAP_CONFIG) => {
     return `<!doctype html>
   <html>
   <head>
@@ -81,49 +71,90 @@ export default function LiveTracking() {
     <div class="company-overlay">© KanProkagno Innovation Private Limited</div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-      const trucks = ${trucksData};
+      let map;
+      let markers = {};
+      
       // Initialize OpenStreetMap
-      const map = L.map('map').setView([${MAP_CONFIG.defaultCenter?.latitude || 28.6139}, ${MAP_CONFIG.defaultCenter?.longitude || 77.209}], ${MAP_CONFIG.defaultZoom || 10});
+      map = L.map('map').setView([${MAP_CONFIG.defaultCenter?.latitude || 28.6139}, ${MAP_CONFIG.defaultCenter?.longitude || 77.209}], ${MAP_CONFIG.defaultZoom || 10});
       
       // Add OpenStreetMap tiles
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors',
         maxZoom: 19
       }).addTo(map);
-
       
-      // Add truck markers
-      trucks.forEach(t => {
-        if (t.latitude && t.longitude) {
-          const truckIcon = L.divIcon({
-            className: 'truck-marker',
-            html: '🚚',
-            iconSize: [28, 28],
-            iconAnchor: [14, 14]
-          });
-          
-          const marker = L.marker([t.latitude, t.longitude], { icon: truckIcon })
-            .bindPopup(
-              '<div style=\"text-align: center;\">' +\n                '<strong>' + t.truckNumber + '</strong><br>' +\n                '<small>Status: ' + t.status + '</small>' +\n              '</div>'\n            )
-            .addTo(map);
-        }
-      });
-      
-      // Signal that map is loaded (for React Native WebView)
+      // Signal that map is loaded
       if (window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage('MAP_LOADED');
       }
 
-      // Global function to update trucks from React Native
-      window.updateTrucks = function(newTrucks) {
-        console.log('Updating trucks:', newTrucks);
-        // Simple implementation - just reload the page content
-        location.reload();
+      // Function to update truck markers without reloading
+      window.updateTrucks = function(trucksData) {
+        try {
+          const trucks = JSON.parse(trucksData);
+          
+          // Remove markers for trucks that no longer exist
+          Object.keys(markers).forEach(truckId => {
+            if (!trucks.find(t => t.id === truckId)) {
+              map.removeLayer(markers[truckId]);
+              delete markers[truckId];
+            }
+          });
+          
+          // Update or create markers for current trucks
+          trucks.forEach(t => {
+            if (t.latitude && t.longitude) {
+              if (markers[t.id]) {
+                // Update existing marker position
+                markers[t.id].setLatLng([t.latitude, t.longitude]);
+                markers[t.id].getPopup().setContent(
+                  '<div style="text-align: center;">' +
+                    '<strong>' + t.truckNumber + '</strong><br>' +
+                    '<small>Status: ' + t.status + '</small>' +
+                  '</div>'
+                );
+              } else {
+                // Create new marker
+                const truckIcon = L.divIcon({
+                  className: 'truck-marker',
+                  html: '🚚',
+                  iconSize: [28, 28],
+                  iconAnchor: [14, 14]
+                });
+                
+                const marker = L.marker([t.latitude, t.longitude], { icon: truckIcon })
+                  .bindPopup(
+                    '<div style="text-align: center;">' +
+                      '<strong>' + t.truckNumber + '</strong><br>' +
+                      '<small>Status: ' + t.status + '</small>' +
+                    '</div>'
+                  )
+                  .addTo(map);
+                
+                markers[t.id] = marker;
+              }
+            }
+          });
+          
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage('TRUCKS_UPDATED');
+          }
+        } catch (error) {
+          console.error('Error updating trucks:', error);
+        }
+      };
+
+      // Function to focus on specific truck
+      window.focusTruck = function(truckId) {
+        if (markers[truckId]) {
+          map.setView(markers[truckId].getLatLng(), 15);
+          markers[truckId].openPopup();
+        }
       };
     </script>
   </body>
   </html>`;
-  }
+  }, []);
 
   useEffect(() => {
     loadTruckLocations();
@@ -136,12 +167,29 @@ export default function LiveTracking() {
     return () => clearInterval(interval);
   }, []);
 
-  // Update map when trucks change
-  useEffect(() => {
-    if (trucks.length > 0 && webViewRef) {
-      updateMapTrucks();
+  const updateMapTrucks = useCallback(() => {
+    if (!webViewRef.current || !mapLoadedRef.current) return;
+
+    const trucksData = trucksRef.current.map((t) => ({
+      id: t._id,
+      latitude: t.currentLocation?.latitude || null,
+      longitude: t.currentLocation?.longitude || null,
+      status: t.status,
+      truckNumber: t.truckNumber || t.registrationNumber || "Unknown",
+    }));
+
+    const jsCode = `
+      if (window.updateTrucks) {
+        window.updateTrucks('${JSON.stringify(trucksData).replace(/'/g, "\\'")}');
+      }
+    `;
+
+    try {
+      webViewRef.current.injectJavaScript(jsCode);
+    } catch (error) {
+      console.error("Error injecting JavaScript:", error);
     }
-  }, [trucks, webViewRef]);
+  }, []); // Empty dependency array - function doesn't depend on state
 
   const loadTruckLocations = async (silent = false) => {
     try {
@@ -158,7 +206,15 @@ export default function LiveTracking() {
       if (response.success) {
         const trucksData = response.data || [];
         console.log("Setting trucks data:", trucksData.length, "trucks");
+
+        // Update both state and ref
+        trucksRef.current = trucksData;
         setTrucks(trucksData);
+
+        // Update map directly here after loading trucks
+        if (mapLoadedRef.current) {
+          updateMapTrucks();
+        }
       } else {
         console.error("Failed to get truck locations:", response.message);
         Toast.show({
@@ -184,23 +240,34 @@ export default function LiveTracking() {
     }
   };
 
-  const updateMapTrucks = () => {
-    // Simple implementation - just refresh the WebView to show updated trucks
-    if (webViewRef) {
-      webViewRef.reload();
-    }
-  };
-
-  const focusOnTruck = (truck) => {
-    if (!webViewRef || !truck.currentLocation) return;
+  const focusOnTruck = useCallback((truck) => {
+    if (!webViewRef.current || !truck.currentLocation) return;
 
     const jsCode = `
       if (window.focusTruck) {
         window.focusTruck('${truck._id}');
       }
     `;
-    webViewRef.injectJavaScript(jsCode);
-  };
+    webViewRef.current.injectJavaScript(jsCode);
+  }, []);
+
+  const handleMapMessage = useCallback(
+    (event) => {
+      const data = event.nativeEvent.data;
+
+      if (data === "MAP_LOADED") {
+        console.log("Map loaded successfully");
+        mapLoadedRef.current = true;
+        // Initial truck load
+        if (trucksRef.current.length > 0) {
+          updateMapTrucks();
+        }
+      } else if (data === "TRUCKS_UPDATED") {
+        console.log("Trucks updated on map");
+      }
+    },
+    [updateMapTrucks]
+  );
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -248,25 +315,20 @@ export default function LiveTracking() {
             {Platform.OS === "web" ? (
               // Web: Use iframe with srcdoc
               <iframe
-                srcDoc={generateMapHtml(trucks, MAP_CONFIG)}
+                srcDoc={generateMapHtml(MAP_CONFIG)}
                 style={{ width: "100%", height: "100%", border: "none" }}
                 title="Live Tracking Map"
               />
             ) : WebView ? (
-              // Native: Use WebView
+              // Native: Use WebView with useRef
               <WebView
-                ref={(ref) => setWebViewRef(ref)}
+                ref={webViewRef}
                 originWhitelist={["*"]}
                 style={{ flex: 1 }}
-                source={{ html: generateMapHtml(trucks, MAP_CONFIG) }}
+                source={{ html: generateMapHtml(MAP_CONFIG) }}
                 javaScriptEnabled={true}
                 domStorageEnabled={true}
-                onMessage={(event) => {
-                  if (event.nativeEvent.data === "MAP_LOADED") {
-                    console.log("Map loaded successfully");
-                    updateMapTrucks();
-                  }
-                }}
+                onMessage={handleMapMessage}
               />
             ) : (
               // Fallback
@@ -311,7 +373,10 @@ export default function LiveTracking() {
                 }
               </Text>
               <Text className="text-xs text-yellow-700">
-                WebView ready: {webViewRef ? "Yes" : "No"}
+                WebView ready: {webViewRef.current ? "Yes" : "No"}
+              </Text>
+              <Text className="text-xs text-yellow-700">
+                Map loaded: {mapLoadedRef.current ? "Yes" : "No"}
               </Text>
             </View>
           )}

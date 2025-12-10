@@ -11,7 +11,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import React from "react";
 // Conditionally import WebView only for native platforms
 let WebView = null;
 if (Platform.OS !== "web") {
@@ -24,12 +25,19 @@ import {
   TrackingService,
   OfflineTrackingService,
   TripService,
+  BreakdownService,
+  AuthService,
+  TruckService,
+  NotificationService,
 } from "../../../services";
 import { MAP_CONFIG } from "../../../config/mapConfig";
-import { useSelector } from "react-redux";
+import { useSelector, useDispatch } from "react-redux";
+import { restoreAuth } from "../../../store/slices/authSlice";
+import { useFocusEffect } from "@react-navigation/native";
 
 export default function DriverActiveShift() {
   const user = useSelector((state) => state.auth.user);
+  const dispatch = useDispatch();
   const [shift, setShift] = useState(null);
   const [loading, setLoading] = useState(true);
   const [shiftDuration, setShiftDuration] = useState("00:00:00");
@@ -49,6 +57,25 @@ export default function DriverActiveShift() {
   const fullScreenWebViewRef = useRef(null);
 
   useEffect(() => {
+    // Restore user auth if not available
+    const restoreUserAuth = async () => {
+      if (!user) {
+        console.log("User not available, trying to restore from token...");
+        try {
+          const authData = await AuthService.restoreUserFromToken();
+          if (authData) {
+            console.log("Restored user from token:", authData.user);
+            dispatch(restoreAuth(authData));
+          } else {
+            console.log("No valid token found");
+          }
+        } catch (error) {
+          console.error("Failed to restore user:", error);
+        }
+      }
+    };
+
+    restoreUserAuth();
     loadActiveShift();
     checkOfflineQueue();
 
@@ -71,6 +98,24 @@ export default function DriverActiveShift() {
     }
   }, [shift]);
 
+  // Effect to reload data when user becomes available
+  useEffect(() => {
+    if (user && user._id) {
+      console.log("User loaded, reloading shift and trips...");
+      loadActiveShift();
+      loadAvailableTrips();
+    }
+  }, [user]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      // Reload data when screen comes into focus
+      if (user) {
+        loadActiveShift();
+      }
+    }, [user])
+  );
+
   const loadActiveShift = async () => {
     try {
       setLoading(true);
@@ -81,19 +126,52 @@ export default function DriverActiveShift() {
       if (response.success && response.data) {
         setShift(response.data);
 
-        // Check for active trip
+        // Check for active trip (in-progress or paused) - also check available trips
         const trips = response.data.trips || [];
-        const inProgressTrip = trips.find((t) => t.status === "in-progress");
+        let activeTrip = trips.find(
+          (t) => t.status === "in-progress" || t.status === "paused"
+        );
 
-        if (inProgressTrip) {
-          setActiveTrip(inProgressTrip);
-          if (inProgressTrip.route) {
-            setPlannedRoute(inProgressTrip.route.path || []);
-            setNavigationInstructions(inProgressTrip.route.instructions || []);
+        // If no active trip in shift, check if driver has any in-progress trip
+        if (!activeTrip) {
+          const response2 = await TripService.getDriverAvailableTrips();
+          if (response2.success && response2.data) {
+            activeTrip = response2.data.find((trip) => {
+              const isAssignedToDriver =
+                (trip.drivers &&
+                  trip.drivers.some((d) => d._id === user._id)) ||
+                (trip.driver && trip.driver._id === user._id);
+              return (
+                isAssignedToDriver &&
+                (trip.status === "in-progress" || trip.status === "paused")
+              );
+            });
+          }
+        }
+
+        if (activeTrip) {
+          setActiveTrip(activeTrip);
+          if (activeTrip.route) {
+            setPlannedRoute(activeTrip.route.path || []);
+            setNavigationInstructions(activeTrip.route.instructions || []);
+          }
+
+          // Load truck data if available
+          if (activeTrip.assignedTruck) {
+            loadTruckData(activeTrip.assignedTruck);
           }
         } else {
           // If no active trip, fetch available pending trips
           loadAvailableTrips();
+        }
+
+        // Load truck data from shift if available
+        if (response.data.truck) {
+          const truckId =
+            typeof response.data.truck === "string"
+              ? response.data.truck
+              : response.data.truck._id;
+          loadTruckData(truckId);
         }
 
         // Load actual route if shift exists
@@ -125,6 +203,21 @@ export default function DriverActiveShift() {
     }
   };
 
+  const loadTruckData = async (truckId) => {
+    try {
+      if (!truckId) return;
+      console.log("Loading truck data for ID:", truckId);
+
+      const response = await TruckService.getTruckById(truckId);
+      if (response.success && response.data) {
+        setTruckData(response.data);
+        console.log("Truck data loaded:", response.data.registrationNumber);
+      }
+    } catch (error) {
+      console.error("Failed to load truck data:", error);
+    }
+  };
+
   const loadAvailableTrips = async () => {
     try {
       console.log("Loading available trips for driver...");
@@ -137,15 +230,74 @@ export default function DriverActiveShift() {
       );
 
       if (response.success && response.data) {
-        // Filter out completed/cancelled trips and ensure they're for this driver
-        const availableTripsData = response.data.filter(
-          (trip) =>
+        console.log("=== TRIP FILTERING DEBUG ===");
+        console.log("Current user object:", JSON.stringify(user, null, 2));
+        console.log("Current driver ID:", user?._id);
+        console.log("Total trips received:", response.data.length);
+
+        // Check if user is available
+        if (!user || !user._id) {
+          console.log("❌ User not loaded yet - skipping trip filtering");
+          setAvailableTrips([]);
+          return;
+        }
+
+        console.log("✅ User loaded, proceeding with filtering...");
+
+        // Filter trips for this driver - include in-progress trips
+        const availableTripsData = response.data.filter((trip) => {
+          // Check if this driver is assigned to the trip
+          let isAssignedToDriver = false;
+
+          // Check drivers array format
+          if (trip.drivers && Array.isArray(trip.drivers)) {
+            isAssignedToDriver = trip.drivers.some((d) => d._id === user._id);
+            console.log(
+              `Trip ${trip._id.slice(-6)} drivers check:`,
+              trip.drivers.map((d) => d._id),
+              "vs current:",
+              user._id,
+              "match:",
+              isAssignedToDriver
+            );
+          }
+
+          // Check legacy driver format
+          if (!isAssignedToDriver && trip.driver && trip.driver._id) {
+            isAssignedToDriver = trip.driver._id === user._id;
+            console.log(
+              `Trip ${trip._id.slice(-6)} legacy driver check:`,
+              trip.driver._id,
+              "vs current:",
+              user._id,
+              "match:",
+              isAssignedToDriver
+            );
+          }
+
+          // Include trips that are not completed/cancelled/expired
+          const isValidStatus =
             trip.status !== "completed" &&
             trip.status !== "cancelled" &&
-            trip.status !== "in-progress" &&
-            trip.status !== "expired"
-        );
+            trip.status !== "expired";
+
+          console.log(
+            `Trip ${trip._id.slice(-6)} final result:`,
+            "assigned:",
+            isAssignedToDriver,
+            "validStatus:",
+            isValidStatus,
+            "status:",
+            trip.status
+          );
+
+          return isAssignedToDriver && isValidStatus;
+        });
         console.log("Filtered available trips:", availableTripsData.length);
+        console.log(
+          "Trip statuses:",
+          availableTripsData.map((t) => ({ id: t._id, status: t.status }))
+        );
         setAvailableTrips(availableTripsData);
       } else {
         console.log("No trips in response or request failed");
@@ -201,6 +353,74 @@ export default function DriverActiveShift() {
         type: "error",
         text1: "Error",
         text2: "Failed to start trip",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateTripStatus = async (tripId, newStatus) => {
+    try {
+      setLoading(true);
+      console.log("Updating trip status:", tripId, newStatus);
+
+      let response;
+      if (newStatus === "paused") {
+        response = await TripService.pauseTrip(tripId);
+      } else if (newStatus === "in-progress") {
+        response = await TripService.resumeTrip(tripId);
+      } else if (newStatus === "completed") {
+        response = await TripService.endTrip(tripId);
+      } else {
+        throw new Error("Invalid trip status");
+      }
+
+      console.log("Update trip status response:", response);
+
+      if (response.success) {
+        // Update the active trip status locally
+        if (activeTrip && activeTrip._id === tripId) {
+          setActiveTrip({ ...activeTrip, status: newStatus });
+        }
+
+        const statusText = {
+          paused: "paused",
+          "in-progress": "resumed",
+          completed: "ended",
+        };
+
+        // Send alert to admin about trip status change
+        try {
+          await NotificationService.notifyTripStatusChange({
+            tripId: tripId,
+            driverName: user.name || user.username || "Driver",
+            truckNumber: truckData?.registrationNumber || "Unknown",
+            status:
+              statusText[newStatus].charAt(0).toUpperCase() +
+              statusText[newStatus].slice(1),
+            location: currentLocation,
+          });
+        } catch (alertError) {
+          console.error("Failed to send admin alert:", alertError);
+        }
+
+        Toast.show({
+          type: "success",
+          text1: "Trip Updated",
+          text2: `Trip ${statusText[newStatus]}`,
+        });
+
+        // Reload shift data to get updated information
+        loadActiveShift();
+      } else {
+        throw new Error(response.message || "Failed to update trip status");
+      }
+    } catch (error) {
+      console.error("Failed to update trip status:", error);
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: "Failed to update trip status",
       });
     } finally {
       setLoading(false);
@@ -282,8 +502,8 @@ export default function DriverActiveShift() {
             console.error("Failed to update location:", error);
           }
 
-          // Update map with current location
-          updateCurrentLocationOnMap(latitude, longitude);
+          // Update map with current location and bearing if available
+          updateCurrentLocationOnMap(latitude, longitude, null);
         }
       );
 
@@ -472,7 +692,7 @@ export default function DriverActiveShift() {
 
     const start = new Date(shift.startTime);
     const now = new Date();
-    const diff = Math.floor((now - start) / 1000);
+    const diff = Math.max(0, Math.floor((now - start) / 1000)); // Ensure non-negative
 
     const hours = Math.floor(diff / 3600);
     const minutes = Math.floor((diff % 3600) / 60);
@@ -484,6 +704,120 @@ export default function DriverActiveShift() {
         "0"
       )}:${String(seconds).padStart(2, "0")}`
     );
+  };
+
+  const [showBreakdownModal, setShowBreakdownModal] = useState(false);
+  const [truckData, setTruckData] = useState(null);
+
+  const breakdownTypes = [
+    {
+      id: "engine",
+      icon: "car-sport",
+      title: "Engine Issue",
+      severity: "high",
+    },
+    { id: "tire", icon: "ellipse", title: "Tire Problem", severity: "medium" },
+    {
+      id: "brake",
+      icon: "stop-circle",
+      title: "Brake Failure",
+      severity: "high",
+    },
+    {
+      id: "electrical",
+      icon: "flash",
+      title: "Electrical",
+      severity: "medium",
+    },
+    { id: "fuel", icon: "water", title: "Fuel Issue", severity: "medium" },
+    {
+      id: "transmission",
+      icon: "settings",
+      title: "Transmission",
+      severity: "high",
+    },
+    {
+      id: "steering",
+      icon: "refresh-circle",
+      title: "Steering",
+      severity: "high",
+    },
+    {
+      id: "overheating",
+      icon: "thermometer",
+      title: "Overheating",
+      severity: "high",
+    },
+    {
+      id: "accident",
+      icon: "warning",
+      title: "Accident",
+      severity: "critical",
+    },
+    { id: "other", icon: "help-circle", title: "Other", severity: "medium" },
+  ];
+
+  const handleReportBreakdown = () => {
+    setShowBreakdownModal(true);
+  };
+
+  const reportBreakdown = async (breakdownType) => {
+    try {
+      if (!currentLocation || !truckData?._id) {
+        Toast.show({
+          type: "error",
+          text1: "Error",
+          text2: "Unable to determine location or truck information",
+        });
+        return;
+      }
+
+      const response = await BreakdownService.reportBreakdown({
+        truckId: truckData._id,
+        shiftId: shift?._id,
+        tripId: activeTrip?._id,
+        location: {
+          coordinates: [currentLocation.longitude, currentLocation.latitude],
+          address: "Driver location",
+        },
+        reportedBy: user._id,
+        breakdownType: breakdownType.id,
+        description: `${breakdownType.title} reported from driver app`,
+        severity: breakdownType.severity,
+      });
+
+      if (response.success) {
+        // Send alert to admin
+        await NotificationService.notifyBreakdown({
+          driverName: user.name || user.username || "Driver",
+          truckNumber: truckData.registrationNumber,
+          breakdownType: breakdownType.title,
+          breakdownId: response.data?._id,
+          location: currentLocation,
+          severity: breakdownType.severity,
+        });
+
+        Toast.show({
+          type: "success",
+          text1: "Success",
+          text2: "Breakdown reported. Admin has been notified.",
+        });
+        setShowBreakdownModal(false);
+      } else {
+        Toast.show({
+          type: "error",
+          text1: "Error",
+          text2: response.message || "Failed to report breakdown",
+        });
+      }
+    } catch (error) {
+      console.error("Breakdown reporting error:", error);
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: "Failed to report breakdown",
+      });
+    }
   };
 
   const updateMapRoute = (route) => {
@@ -508,10 +842,35 @@ export default function DriverActiveShift() {
       fullScreenWebViewRef.current.injectJavaScript(jsCode);
   };
 
-  const updateCurrentLocationOnMap = (latitude, longitude) => {
+  const updateCurrentLocationOnMap = (latitude, longitude, bearing = null) => {
     const jsCode = `
       if (window.updateCurrentLocation) {
-        window.updateCurrentLocation(${latitude}, ${longitude});
+        window.updateCurrentLocation(${latitude}, ${longitude}, ${bearing});
+      }
+    `;
+    if (webViewRef.current) webViewRef.current.injectJavaScript(jsCode);
+    if (fullScreenWebViewRef.current)
+      fullScreenWebViewRef.current.injectJavaScript(jsCode);
+  };
+
+  const toggleMapCompass = () => {
+    const jsCode = `
+      if (window.toggleCompass) {
+        const isEnabled = window.toggleCompass();
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage('COMPASS_TOGGLED:' + isEnabled);
+        }
+      }
+    `;
+    if (webViewRef.current) webViewRef.current.injectJavaScript(jsCode);
+    if (fullScreenWebViewRef.current)
+      fullScreenWebViewRef.current.injectJavaScript(jsCode);
+  };
+
+  const resetMapOrientation = () => {
+    const jsCode = `
+      if (window.resetMapOrientation) {
+        window.resetMapOrientation();
       }
     `;
     if (webViewRef.current) webViewRef.current.injectJavaScript(jsCode);
@@ -542,7 +901,8 @@ export default function DriverActiveShift() {
     if (currentLocation) {
       updateCurrentLocationOnMap(
         currentLocation.latitude,
-        currentLocation.longitude
+        currentLocation.longitude,
+        null
       );
     }
   };
@@ -651,18 +1011,78 @@ export default function DriverActiveShift() {
       }).addTo(map);
     };
 
-    window.updateCurrentLocation = function(lat, lon) {
+    let lastPosition = null;
+    let currentBearing = 0;
+    let compassEnabled = true;
+
+    window.updateCurrentLocation = function(lat, lon, bearing) {
+      const newPosition = [lat, lon];
+      
       if (currentMarker) {
-        currentMarker.setLatLng([lat, lon]);
+        currentMarker.setLatLng(newPosition);
       } else {
         const currentIcon = L.divIcon({
           className: 'marker-current',
-          iconSize: [20, 20]
+          iconSize: [20, 20],
+          html: '<div style="width:20px;height:20px;background:#4CAF50;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.3);"><div style="width:0;height:0;border-left:3px solid transparent;border-right:3px solid transparent;border-bottom:8px solid #fff;position:absolute;top:1px;left:7px;transform-origin:50% 100%;transition:transform 0.3s ease;" id="direction-arrow"></div></div>'
         });
-        currentMarker = L.marker([lat, lon], { icon: currentIcon }).addTo(map);
+        currentMarker = L.marker(newPosition, { icon: currentIcon }).addTo(map);
       }
       
-      map.panTo([lat, lon]);
+      // Calculate bearing if we have previous position
+      if (lastPosition && bearing !== undefined) {
+        currentBearing = bearing;
+      } else if (lastPosition) {
+        const lat1 = lastPosition[0] * Math.PI / 180;
+        const lat2 = lat * Math.PI / 180;
+        const deltaLon = (lon - lastPosition[1]) * Math.PI / 180;
+        
+        const y = Math.sin(deltaLon) * Math.cos(lat2);
+        const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLon);
+        
+        currentBearing = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+      }
+      
+      // Rotate the direction arrow on the marker based on bearing
+      if (currentBearing !== 0 && compassEnabled) {
+        const arrow = document.getElementById('direction-arrow');
+        if (arrow) {
+          arrow.style.transform = 'rotate(' + currentBearing + 'deg)';
+        }
+        
+        // Smooth map rotation following the movement direction
+        const mapContainer = map.getContainer();
+        if (mapContainer) {
+          mapContainer.style.transform = 'rotate(' + (-currentBearing) + 'deg)';
+          mapContainer.style.transformOrigin = '50% 50%';
+          mapContainer.style.transition = 'transform 0.5s ease';
+        }
+      }
+      
+      lastPosition = newPosition;
+      map.panTo(newPosition);
+    };
+
+    // Function to toggle compass mode
+    window.toggleCompass = function() {
+      compassEnabled = !compassEnabled;
+      const mapContainer = map.getContainer();
+      if (!compassEnabled && mapContainer) {
+        mapContainer.style.transform = 'none';
+        mapContainer.style.transition = 'transform 0.5s ease';
+      }
+      return compassEnabled;
+    };
+
+    // Function to reset map orientation
+    window.resetMapOrientation = function() {
+      const mapContainer = map.getContainer();
+      if (mapContainer) {
+        mapContainer.style.transform = 'none';
+        mapContainer.style.transition = 'transform 0.5s ease';
+      }
+      currentBearing = 0;
+      compassEnabled = false;
     };
   </script>
 </body>
@@ -725,8 +1145,22 @@ export default function DriverActiveShift() {
                 className="text-white text-sm"
                 style={{ fontFamily: "Poppins" }}
               >
-                Truck: {shift.truck?.truckNumber || "N/A"}
+                Truck:{" "}
+                {truckData?.registrationNumber ||
+                  shift.truck?.truckNumber ||
+                  "Loading..."}
               </Text>
+              {activeTrip && (
+                <Text
+                  className="text-white text-xs mt-1"
+                  style={{ fontFamily: "Poppins" }}
+                >
+                  ETA:{" "}
+                  {activeTrip.estimatedDuration
+                    ? formatTime(activeTrip.estimatedDuration)
+                    : "Calculating..."}
+                </Text>
+              )}
             </View>
             <View className="items-end">
               <Text
@@ -761,7 +1195,7 @@ export default function DriverActiveShift() {
         )}
 
         {/* Map View */}
-        <View className="mx-6 mb-4 bg-white rounded-2xl overflow-hidden shadow-sm relative">
+        <View className="mx-6 mb-4 bg-gray-50 border border-gray-200 rounded-2xl overflow-hidden relative">
           <View className="h-80">
             {Platform.OS === "web" ? (
               <iframe
@@ -788,12 +1222,32 @@ export default function DriverActiveShift() {
               </View>
             )}
           </View>
-          <TouchableOpacity
-            className="absolute bottom-4 right-4 bg-white p-3 rounded-full shadow-md"
-            onPress={() => setIsFullScreen(true)}
-          >
-            <Ionicons name="expand" size={24} color="#333" />
-          </TouchableOpacity>
+          {/* Map Controls */}
+          <View className="absolute bottom-4 right-4 flex-col space-y-2">
+            {/* Compass Toggle */}
+            <TouchableOpacity
+              className="bg-white p-3 rounded-full shadow-md"
+              onPress={toggleMapCompass}
+            >
+              <Ionicons name="compass" size={20} color="#D4AF37" />
+            </TouchableOpacity>
+
+            {/* Reset Orientation */}
+            <TouchableOpacity
+              className="bg-white p-3 rounded-full shadow-md"
+              onPress={resetMapOrientation}
+            >
+              <Ionicons name="refresh" size={20} color="#666" />
+            </TouchableOpacity>
+
+            {/* Fullscreen */}
+            <TouchableOpacity
+              className="bg-white p-3 rounded-full shadow-md"
+              onPress={() => setIsFullScreen(true)}
+            >
+              <Ionicons name="expand" size={20} color="#333" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Trip Status / Selection */}
@@ -824,6 +1278,133 @@ export default function DriverActiveShift() {
                   <Text className="text-gray-800 font-bold text-base">
                     {activeTrip.endLocation?.address || "Destination"}
                   </Text>
+                </View>
+              </View>
+
+              {/* Trip Status and Controls */}
+              <View
+                style={{
+                  backgroundColor:
+                    activeTrip.status === "in-progress" ? "#059669" : "#DC2626",
+                  padding: 12,
+                  borderRadius: 12,
+                  marginTop: 12,
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <Ionicons
+                    name={
+                      activeTrip.status === "in-progress"
+                        ? "play-circle"
+                        : "pause-circle"
+                    }
+                    size={24}
+                    color="#fff"
+                  />
+                  <Text
+                    style={{
+                      color: "#fff",
+                      fontWeight: "600",
+                      marginLeft: 8,
+                      fontSize: 16,
+                    }}
+                  >
+                    {activeTrip.status === "in-progress"
+                      ? "Trip In Progress"
+                      : "Trip Paused"}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  {activeTrip.status === "in-progress" ? (
+                    <TouchableOpacity
+                      onPress={() => updateTripStatus(activeTrip._id, "paused")}
+                      style={{
+                        backgroundColor: "#FBBF24",
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 20,
+                        flexDirection: "row",
+                        alignItems: "center",
+                      }}
+                    >
+                      <Ionicons name="pause" size={16} color="#000" />
+                      <Text
+                        style={{
+                          color: "#000",
+                          marginLeft: 4,
+                          fontSize: 12,
+                          fontWeight: "600",
+                        }}
+                      >
+                        Pause
+                      </Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      onPress={() =>
+                        updateTripStatus(activeTrip._id, "in-progress")
+                      }
+                      style={{
+                        backgroundColor: "#10B981",
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 20,
+                        flexDirection: "row",
+                        alignItems: "center",
+                      }}
+                    >
+                      <Ionicons name="play" size={16} color="#fff" />
+                      <Text
+                        style={{
+                          color: "#fff",
+                          marginLeft: 4,
+                          fontSize: 12,
+                          fontWeight: "600",
+                        }}
+                      >
+                        Resume
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    onPress={() =>
+                      Alert.alert(
+                        "End Trip",
+                        "Are you sure you want to end this trip?",
+                        [
+                          { text: "Cancel", style: "cancel" },
+                          {
+                            text: "End Trip",
+                            onPress: () =>
+                              updateTripStatus(activeTrip._id, "completed"),
+                          },
+                        ]
+                      )
+                    }
+                    style={{
+                      backgroundColor: "#DC2626",
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      borderRadius: 20,
+                      flexDirection: "row",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Ionicons name="stop" size={16} color="#fff" />
+                    <Text
+                      style={{
+                        color: "#fff",
+                        marginLeft: 4,
+                        fontSize: 12,
+                        fontWeight: "600",
+                      }}
+                    >
+                      End
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               </View>
 
@@ -961,6 +1542,22 @@ export default function DriverActiveShift() {
           )}
         </View>
 
+        {/* Action Buttons */}
+        <View className="mx-6 mb-4 flex-row space-x-3">
+          <TouchableOpacity
+            onPress={handleReportBreakdown}
+            className="flex-1 bg-red-600 p-4 rounded-xl flex-row items-center justify-center"
+          >
+            <Ionicons name="warning" size={20} color="#fff" />
+            <Text
+              className="text-white font-semibold ml-2"
+              style={{ fontFamily: "Poppins" }}
+            >
+              Report Breakdown
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Navigation Debug Panel (remove in production) */}
         {__DEV__ && activeTrip && (
           <View className="mx-6 mb-4 bg-yellow-50 border border-yellow-200 rounded-2xl p-4">
@@ -987,7 +1584,7 @@ export default function DriverActiveShift() {
         )}
 
         {/* Shift Details */}
-        <View className="mx-6 mb-6 bg-white rounded-2xl p-5 shadow-sm">
+        <View className="mx-6 mb-6 bg-gray-50 border border-gray-200 rounded-2xl p-5">
           <Text
             className="text-lg text-gray-800 mb-4"
             style={{ fontFamily: "Cinzel" }}
@@ -1036,7 +1633,7 @@ export default function DriverActiveShift() {
         animationType="slide"
         onRequestClose={() => setIsFullScreen(false)}
       >
-        <SafeAreaView className="flex-1 bg-white">
+        <SafeAreaView className="flex-1 bg-gray-50">
           <View className="flex-row items-center justify-between p-4 border-b border-gray-200">
             <Text className="text-lg font-bold">Full Screen Map</Text>
             <TouchableOpacity onPress={() => setIsFullScreen(false)}>
@@ -1114,9 +1711,25 @@ export default function DriverActiveShift() {
                     className="bg-gray-50 p-4 rounded-xl mb-4 border border-gray-200"
                   >
                     <View className="flex-row justify-between mb-2">
-                      <Text className="font-bold text-gray-800">
-                        Trip #{item._id.slice(-6)}
-                      </Text>
+                      <View className="flex-row items-center">
+                        <Text className="font-bold text-gray-800">
+                          Trip #{item._id.slice(-6)}
+                        </Text>
+                        {item.drivers?.length > 1 && (
+                          <View className="bg-orange-100 px-2 py-1 rounded-full ml-2">
+                            <Text
+                              style={{
+                                fontFamily: "Poppins",
+                                fontSize: 9,
+                                color: "#EA580C",
+                                fontWeight: "600",
+                              }}
+                            >
+                              {item.drivers.length} DRIVERS
+                            </Text>
+                          </View>
+                        )}
+                      </View>
                       <View className="bg-blue-100 px-2 py-1 rounded">
                         <Text className="text-blue-800 text-xs font-bold">
                           {item.status}
@@ -1147,6 +1760,81 @@ export default function DriverActiveShift() {
                 )}
               />
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Breakdown Selection Modal */}
+      <Modal
+        visible={showBreakdownModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowBreakdownModal(false)}
+      >
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="bg-white rounded-t-3xl p-6">
+            <View className="flex-row justify-between items-center mb-6">
+              <Text
+                className="text-xl font-bold text-red-600"
+                style={{ fontFamily: "Cinzel" }}
+              >
+                Report Breakdown
+              </Text>
+              <TouchableOpacity onPress={() => setShowBreakdownModal(false)}>
+                <Ionicons name="close-circle" size={32} color="#DC2626" />
+              </TouchableOpacity>
+            </View>
+
+            <Text
+              className="text-gray-600 mb-4"
+              style={{ fontFamily: "Poppins" }}
+            >
+              Select the type of breakdown:
+            </Text>
+
+            <View className="flex-row flex-wrap justify-between">
+              {breakdownTypes.map((type) => (
+                <TouchableOpacity
+                  key={type.id}
+                  onPress={() => reportBreakdown(type)}
+                  className="w-[48%] mb-4 p-4 border border-gray-200 rounded-xl items-center"
+                  style={{
+                    backgroundColor:
+                      type.severity === "critical"
+                        ? "#FEF2F2"
+                        : type.severity === "high"
+                          ? "#FFF7ED"
+                          : "#F9FAFB",
+                  }}
+                >
+                  <Ionicons
+                    name={type.icon}
+                    size={32}
+                    color={
+                      type.severity === "critical"
+                        ? "#DC2626"
+                        : type.severity === "high"
+                          ? "#EA580C"
+                          : "#6B7280"
+                    }
+                  />
+                  <Text
+                    className="text-center mt-2 font-semibold"
+                    style={{
+                      fontFamily: "Poppins",
+                      color:
+                        type.severity === "critical"
+                          ? "#DC2626"
+                          : type.severity === "high"
+                            ? "#EA580C"
+                            : "#374151",
+                    }}
+                  >
+                    {type.title}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         </View>
       </Modal>

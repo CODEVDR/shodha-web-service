@@ -77,6 +77,67 @@ class GeofenceService {
       coordinates: [coordinates],
     };
   }
+
+  /**
+   * Get all geofences
+   */
+  async getAllGeofences() {
+    try {
+      return await apiClient.get(API_CONFIG.endpoints.geofences.getAll);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Get geofence by ID
+   */
+  async getGeofenceById(id) {
+    try {
+      return await apiClient.get(API_CONFIG.endpoints.geofences.getById(id));
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Update geofence
+   */
+  async updateGeofence(id, data) {
+    try {
+      return await apiClient.put(
+        API_CONFIG.endpoints.geofences.update(id),
+        data
+      );
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Delete geofence
+   */
+  async deleteGeofence(id) {
+    try {
+      return await apiClient.delete(API_CONFIG.endpoints.geofences.delete(id));
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Check if location is within geofences
+   */
+  async checkGeofences(latitude, longitude) {
+    try {
+      return await apiClient.post(API_CONFIG.endpoints.geofences.check, {
+        latitude,
+        longitude,
+      });
+    } catch (error) {
+      throw error;
+    }
+  }
 }
 
 export default new GeofenceService();

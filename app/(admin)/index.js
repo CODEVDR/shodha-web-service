@@ -306,7 +306,7 @@ export default function AdminDashboard() {
         {
           title: "Reports",
           icon: "bar-chart",
-          route: "/(admin)/reports/index",
+          route: "/(admin)/reports/report",
           color: "#607D8B",
           description: "View analytics",
         },
@@ -404,7 +404,7 @@ export default function AdminDashboard() {
 
           {/* Real-time Notifications Panel */}
           {realtimeNotifications.length > 0 && (
-            <View className="bg-white rounded-2xl p-4 mb-6 shadow-sm">
+            <View className="bg-gray-50 border border-gray-200 rounded-2xl p-4 mb-6">
               <View className="flex-row items-center justify-between mb-3">
                 <Text
                   className="text-lg text-gray-800"
@@ -485,7 +485,7 @@ export default function AdminDashboard() {
               {section.items.map((item, itemIndex) => (
                 <TouchableOpacity
                   key={itemIndex}
-                  className="bg-white rounded-xl p-5 mb-3 flex-row items-center shadow-sm"
+                  className="bg-gray-50 border border-gray-200 rounded-xl p-5 mb-3 flex-row items-center"
                   onPress={() => router.push(item.route)}
                 >
                   <View

@@ -4,6 +4,7 @@ import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import { API_CONFIG } from "../../config/apiConfig";
+import { STORAGE_KEYS } from "../../utils/constants";
 
 // Configure notification behavior
 Notifications.setNotificationHandler({
@@ -24,17 +25,214 @@ class NotificationService {
   }
 
   /**
+   * Get notifications from database
+   */
+  async getNotificationsFromDB(params = {}) {
+    try {
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+      const userData = await AsyncStorage.getItem(STORAGE_KEYS.USER_DATA);
+
+      console.log(
+        "NotificationService.getNotificationsFromDB - Token exists:",
+        !!token
+      );
+      console.log(
+        "NotificationService.getNotificationsFromDB - User data:",
+        userData
+      );
+
+      if (!token) {
+        console.error("No authentication token found in AsyncStorage");
+        throw new Error("No authentication token");
+      }
+
+      const queryParams = new URLSearchParams({
+        page: params.page || 1,
+        limit: params.limit || 20,
+        unreadOnly: params.unreadOnly || false,
+      });
+
+      const response = await fetch(
+        `${API_CONFIG.baseURL}/notifications/history?${queryParams}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      const result = await response.json();
+      console.log(
+        "NotificationService.getNotificationsFromDB - API response:",
+        result
+      );
+
+      if (result.success) {
+        return result.data;
+      } else {
+        throw new Error(result.message || "Failed to fetch notifications");
+      }
+    } catch (error) {
+      console.error("Get notifications from DB error:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get unread count from database
+   */
+  async getUnreadCount() {
+    try {
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+      const userData = await AsyncStorage.getItem(STORAGE_KEYS.USER_DATA);
+
+      console.log(
+        "NotificationService.getUnreadCount - Token exists:",
+        !!token
+      );
+      console.log("NotificationService.getUnreadCount - User data:", userData);
+
+      if (!token) {
+        console.error("No authentication token found in AsyncStorage");
+        throw new Error("No authentication token");
+      }
+
+      const response = await fetch(
+        `${API_CONFIG.baseURL}/notifications/unread-count`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      const result = await response.json();
+      console.log("NotificationService.getUnreadCount - API response:", result);
+
+      if (result.success) {
+        return result.data.count;
+      } else {
+        throw new Error(result.message || "Failed to get unread count");
+      }
+    } catch (error) {
+      console.error("Get unread count error:", error);
+      return 0;
+    }
+  }
+
+  /**
+   * Mark notification as read in database
+   */
+  async markAsReadInDB(notificationId) {
+    try {
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+      if (!token) {
+        throw new Error("No authentication token");
+      }
+
+      const response = await fetch(
+        `${API_CONFIG.baseURL}/notifications/${notificationId}/read`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.message || "Failed to mark as read");
+      }
+      return result;
+    } catch (error) {
+      console.error("Mark as read in DB error:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Mark all notifications as read in database
+   */
+  async markAllAsReadInDB() {
+    try {
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+      if (!token) {
+        throw new Error("No authentication token");
+      }
+
+      const response = await fetch(
+        `${API_CONFIG.baseURL}/notifications/mark-all-read`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.message || "Failed to mark all as read");
+      }
+      return result;
+    } catch (error) {
+      console.error("Mark all as read in DB error:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create notification in database
+   */
+  async createNotificationInDB(notificationData) {
+    try {
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+      if (!token) {
+        throw new Error("No authentication token");
+      }
+
+      const response = await fetch(
+        `${API_CONFIG.baseURL}/notifications/create`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(notificationData),
+        }
+      );
+
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.message || "Failed to create notification");
+      }
+      return result.data;
+    } catch (error) {
+      console.error("Create notification in DB error:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Connect to SSE notification stream
    */
   async connectToStream() {
     try {
-      const token = await AsyncStorage.getItem("authToken");
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
       if (!token) {
         console.warn("No auth token, cannot connect to notification stream");
         return;
       }
 
-      const streamUrl = `${API_CONFIG.baseURL}${API_CONFIG.endpoints.notifications.stream}`;
+      const streamUrl = `${API_CONFIG.baseURL}/notifications/stream`;
 
       // Note: EventSource in React Native may require polyfill
       // Using fetch with streaming as fallback
@@ -319,6 +517,11 @@ class NotificationService {
    */
   async scheduleLocalNotification(title, body, data = {}) {
     try {
+      // Store notification if it has targetRole or is a general notification
+      if (data.targetRole || !data.type) {
+        await this.storeNotification({ title, body, data });
+      }
+
       await Notifications.scheduleNotificationAsync({
         content: {
           title,
@@ -337,14 +540,25 @@ class NotificationService {
    * Show trip assignment notification
    */
   async notifyTripAssignment(tripData) {
-    await this.scheduleLocalNotification(
-      "🚛 New Trip Assigned!",
-      `Trip from ${tripData.startLocation?.name || "Start"} to ${tripData.endLocation?.name || "End"}. Distance: ${tripData.distance || "N/A"} km`,
-      {
+    const notification = {
+      title: "🚛 New Trip Assigned!",
+      body: `Trip from ${tripData.startLocation?.name || "Start"} to ${tripData.endLocation?.name || "End"}. Distance: ${tripData.distance || "N/A"} km`,
+      data: {
         type: "TRIP_ASSIGNED",
         tripId: tripData._id,
+        targetRole: "driver",
         screen: "/(driver)/trip/[id]",
-      }
+      },
+    };
+
+    // Store the notification
+    await this.storeNotification(notification);
+
+    // Show local notification
+    await this.scheduleLocalNotification(
+      notification.title,
+      notification.body,
+      notification.data
     );
   }
 
@@ -381,14 +595,58 @@ class NotificationService {
    * Show breakdown notification (to admin)
    */
   async notifyBreakdown(breakdownData) {
-    await this.scheduleLocalNotification(
-      "⚠️ Breakdown Reported",
-      `${breakdownData.driverName || "Driver"} reported a ${breakdownData.breakdownType} breakdown`,
-      {
+    const notification = {
+      title: "⚠️ Breakdown Reported",
+      body: `${breakdownData.driverName || "Driver"} reported a ${breakdownData.breakdownType} breakdown on truck ${breakdownData.truckNumber}`,
+      data: {
         type: "BREAKDOWN_REPORTED",
         breakdownId: breakdownData.breakdownId,
+        driverName: breakdownData.driverName,
+        truckNumber: breakdownData.truckNumber,
+        breakdownType: breakdownData.breakdownType,
+        severity: breakdownData.severity,
+        targetRole: "admin",
         screen: "/(admin)/tracking/live",
-      }
+      },
+    };
+
+    // Store the notification locally
+    await this.storeNotification(notification);
+
+    // Show local notification
+    await this.scheduleLocalNotification(
+      notification.title,
+      notification.body,
+      notification.data
+    );
+  }
+
+  /**
+   * Show trip status change notification (to admin)
+   */
+  async notifyTripStatusChange(statusData) {
+    const notification = {
+      title: `🚛 Trip ${statusData.status}`,
+      body: `${statusData.driverName || "Driver"} has ${statusData.status.toLowerCase()} their trip at ${new Date().toLocaleTimeString()}`,
+      data: {
+        type: "TRIP_STATUS_CHANGE",
+        tripId: statusData.tripId,
+        driverName: statusData.driverName,
+        truckNumber: statusData.truckNumber,
+        status: statusData.status,
+        targetRole: "admin",
+        screen: "/(admin)/tracking/live",
+      },
+    };
+
+    // Store the notification locally
+    await this.storeNotification(notification);
+
+    // Show local notification
+    await this.scheduleLocalNotification(
+      notification.title,
+      notification.body,
+      notification.data
     );
   }
 
@@ -504,6 +762,140 @@ class NotificationService {
       await Notifications.setBadgeCountAsync(count);
     } catch (error) {
       console.error("Error setting badge count:", error);
+    }
+  }
+
+  /**
+   * Notify about breakdown reported
+   */
+  async notifyBreakdownReported(breakdown, driver) {
+    try {
+      const notificationData = {
+        title: "Breakdown Reported",
+        body: `${driver.name} reported a breakdown: ${breakdown.breakdownType}`,
+        data: {
+          type: "breakdown_reported",
+          breakdownId: breakdown._id,
+          driverId: driver._id,
+          tripId: breakdown.trip,
+          location: breakdown.location?.address || "Unknown location",
+        },
+      };
+
+      // Send push notification to all admins
+      await this.sendNotification(notificationData);
+
+      console.log("Breakdown notification sent:", notificationData);
+    } catch (error) {
+      console.error("Error sending breakdown notification:", error);
+    }
+  }
+
+  /**
+   * Send notification (base method)
+   */
+  async sendNotification(notificationData) {
+    try {
+      // For now, use local notification as fallback
+      // In production, this would send to backend for proper role-based targeting
+      await this.scheduleLocalNotification(
+        notificationData.title,
+        notificationData.body,
+        notificationData.data
+      );
+    } catch (error) {
+      console.error("Error sending notification:", error);
+    }
+  }
+
+  /**
+   * Store notification for user
+   */
+  async storeNotification(notification) {
+    try {
+      const stored =
+        (await AsyncStorage.getItem("stored_notifications")) || "[]";
+      const notifications = JSON.parse(stored);
+
+      const newNotification = {
+        id: Date.now().toString(),
+        ...notification,
+        timestamp: new Date().toISOString(),
+        read: false,
+      };
+
+      notifications.unshift(newNotification);
+
+      // Keep only last 50 notifications
+      if (notifications.length > 50) {
+        notifications.splice(50);
+      }
+
+      await AsyncStorage.setItem(
+        "stored_notifications",
+        JSON.stringify(notifications)
+      );
+      return newNotification;
+    } catch (error) {
+      console.error("Error storing notification:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Get stored notifications
+   */
+  async getStoredNotifications() {
+    try {
+      const stored =
+        (await AsyncStorage.getItem("stored_notifications")) || "[]";
+      return JSON.parse(stored);
+    } catch (error) {
+      console.error("Error getting stored notifications:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Mark notification as read
+   */
+  async markAsRead(notificationId) {
+    try {
+      const stored =
+        (await AsyncStorage.getItem("stored_notifications")) || "[]";
+      const notifications = JSON.parse(stored);
+
+      const notification = notifications.find((n) => n.id === notificationId);
+      if (notification) {
+        notification.read = true;
+        await AsyncStorage.setItem(
+          "stored_notifications",
+          JSON.stringify(notifications)
+        );
+      }
+    } catch (error) {
+      console.error("Error marking notification as read:", error);
+    }
+  }
+
+  /**
+   * Dismiss notification
+   */
+  async dismissNotification(notificationId) {
+    try {
+      const stored =
+        (await AsyncStorage.getItem("stored_notifications")) || "[]";
+      const notifications = JSON.parse(stored);
+
+      const filteredNotifications = notifications.filter(
+        (n) => n.id !== notificationId
+      );
+      await AsyncStorage.setItem(
+        "stored_notifications",
+        JSON.stringify(filteredNotifications)
+      );
+    } catch (error) {
+      console.error("Error dismissing notification:", error);
     }
   }
 }

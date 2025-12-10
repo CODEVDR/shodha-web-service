@@ -56,6 +56,17 @@ const getLocationLabel = (location) => {
   );
 };
 
+const getDriverNames = (assignment) => {
+  // Support both old single driver and new multiple drivers format
+  if (assignment.drivers && assignment.drivers.length > 0) {
+    return assignment.drivers.map((d) => d.name || "Unknown").join(", ");
+  }
+  if (assignment.driver) {
+    return assignment.driver.name || "N/A";
+  }
+  return "N/A";
+};
+
 const formatTimeValue = (value) => {
   if (!value) return "Not started";
   try {
@@ -423,7 +434,7 @@ export default function ShiftAssignments() {
             </Text>
 
             {activeAssignments.length === 0 ? (
-              <View className="bg-white rounded-2xl p-6 items-center">
+              <View className="bg-gray-50 border border-gray-200 rounded-2xl p-6 items-center">
                 <Ionicons name="car-outline" size={48} color="#D1D5DB" />
                 <Text
                   className="text-gray-500 mt-3"
@@ -436,7 +447,7 @@ export default function ShiftAssignments() {
               activeAssignments.map((assignment) => (
                 <View
                   key={assignment._id}
-                  className="bg-white rounded-2xl p-4 mb-3 shadow-sm"
+                  className="bg-gray-50 border border-gray-200 rounded-2xl p-4 mb-3"
                 >
                   <View className="flex-row items-center justify-between mb-3">
                     <View className="flex-row items-center">
@@ -492,13 +503,36 @@ export default function ShiftAssignments() {
                   </View>
 
                   <View className="flex-row items-center mb-2">
-                    <Ionicons name="person" size={18} color="#D4AF37" />
+                    <Ionicons
+                      name={
+                        assignment.drivers?.length > 1 ||
+                        (assignment.drivers?.length === 0 && assignment.driver)
+                          ? "people"
+                          : "person"
+                      }
+                      size={18}
+                      color="#D4AF37"
+                    />
                     <Text
                       className="text-gray-800 ml-2"
                       style={{ fontFamily: "Poppins", fontWeight: "600" }}
                     >
-                      {assignment.driver?.name || "N/A"}
+                      {getDriverNames(assignment)}
                     </Text>
+                    {assignment.drivers?.length > 1 && (
+                      <View className="bg-blue-100 px-2 py-1 rounded-full ml-2">
+                        <Text
+                          style={{
+                            fontFamily: "Poppins",
+                            fontSize: 10,
+                            color: "#1D4ED8",
+                            fontWeight: "600",
+                          }}
+                        >
+                          {assignment.drivers.length} drivers
+                        </Text>
+                      </View>
+                    )}
                   </View>
 
                   <View className="flex-row items-center">
@@ -678,7 +712,7 @@ export default function ShiftAssignments() {
             {availableTrucks.map((truck) => (
               <View
                 key={truck._id}
-                className="bg-white rounded-lg p-3 mb-2 flex-row items-center"
+                className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-2 flex-row items-center"
               >
                 <Ionicons name="car-outline" size={20} color="#10B981" />
                 <Text

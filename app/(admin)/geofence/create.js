@@ -270,44 +270,67 @@ export default function CreateGeofence() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#F9FAFB" }}>
       <ScrollView
-        className="flex-1"
+        style={{ flex: 1 }}
         keyboardShouldPersistTaps="handled"
         nestedScrollEnabled={true}
       >
-        <View className="p-6">
+        <View style={{ padding: 24 }}>
           {/* Header */}
-          <View className="flex-row items-center mb-6">
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              marginBottom: 24,
+            }}
+          >
             <TouchableOpacity
               onPress={() => router.back()}
-              className="mr-4 p-2"
+              style={{ marginRight: 16, padding: 8 }}
               disabled={loading}
             >
-              <Ionicons name="arrow-back" size={24} color="#333" />
+              <Ionicons name="arrow-back" size={24} color="#1F2937" />
             </TouchableOpacity>
             <Text
-              className="text-2xl text-gray-800 flex-1"
-              style={{ fontFamily: "Cinzel" }}
+              style={{
+                fontFamily: "Cinzel",
+                fontSize: 24,
+                color: "#1F2937",
+                flex: 1,
+              }}
             >
               Create Geofence
             </Text>
           </View>
 
           {/* Form */}
-          <View className="space-y-6">
+          <View style={{ gap: 24 }}>
             {/* Name Input */}
             <View>
               <Text
-                className="text-gray-700 mb-2 font-semibold"
-                style={{ fontFamily: "Poppins" }}
+                style={{
+                  fontFamily: "Poppins",
+                  fontWeight: "600",
+                  color: "#374151",
+                  marginBottom: 8,
+                }}
               >
                 Geofence Name *
               </Text>
               <TextInput
-                className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-gray-800"
-                style={{ fontFamily: "Poppins" }}
+                style={{
+                  backgroundColor: "#FFFFFF",
+                  borderWidth: 1,
+                  borderColor: "#E5E7EB",
+                  borderRadius: 12,
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  color: "#1F2937",
+                  fontFamily: "Poppins",
+                }}
                 placeholder="Enter geofence name"
+                placeholderTextColor="#9CA3AF"
                 value={name}
                 onChangeText={setName}
                 editable={!loading}
@@ -317,8 +340,12 @@ export default function CreateGeofence() {
             {/* Location Selection */}
             <View>
               <Text
-                className="text-gray-700 mb-2 font-semibold"
-                style={{ fontFamily: "Poppins" }}
+                style={{
+                  fontFamily: "Poppins",
+                  fontWeight: "600",
+                  color: "#374151",
+                  marginBottom: 8,
+                }}
               >
                 Center Location *
               </Text>
@@ -332,15 +359,28 @@ export default function CreateGeofence() {
             {/* Radius Input */}
             <View>
               <Text
-                className="text-gray-700 mb-2 font-semibold"
-                style={{ fontFamily: "Poppins" }}
+                style={{
+                  fontFamily: "Poppins",
+                  fontWeight: "600",
+                  color: "#374151",
+                  marginBottom: 8,
+                }}
               >
                 Radius (meters) *
               </Text>
               <TextInput
-                className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-gray-800"
-                style={{ fontFamily: "Poppins" }}
+                style={{
+                  backgroundColor: "#FFFFFF",
+                  borderWidth: 1,
+                  borderColor: "#E5E7EB",
+                  borderRadius: 12,
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  color: "#1F2937",
+                  fontFamily: "Poppins",
+                }}
                 placeholder="500"
+                placeholderTextColor="#9CA3AF"
                 value={radius}
                 onChangeText={setRadius}
                 keyboardType="numeric"
@@ -351,8 +391,12 @@ export default function CreateGeofence() {
             {/* Map Preview */}
             <View>
               <Text
-                className="text-gray-700 mb-2 font-semibold"
-                style={{ fontFamily: "Poppins" }}
+                style={{
+                  fontFamily: "Poppins",
+                  fontWeight: "600",
+                  color: "#374151",
+                  marginBottom: 8,
+                }}
               >
                 Map Preview
               </Text>
@@ -361,7 +405,12 @@ export default function CreateGeofence() {
 
             {/* Create Button */}
             <TouchableOpacity
-              className="bg-[#D4AF37] py-4 rounded-2xl items-center"
+              style={{
+                backgroundColor: "#D4AF37",
+                paddingVertical: 16,
+                borderRadius: 16,
+                alignItems: "center",
+              }}
               onPress={handleCreate}
               disabled={loading}
             >
@@ -369,8 +418,12 @@ export default function CreateGeofence() {
                 <ActivityIndicator color="#fff" />
               ) : (
                 <Text
-                  className="text-white text-lg font-bold"
-                  style={{ fontFamily: "Poppins" }}
+                  style={{
+                    fontFamily: "Poppins",
+                    color: "#FFFFFF",
+                    fontSize: 18,
+                    fontWeight: "700",
+                  }}
                 >
                   Create Geofence
                 </Text>

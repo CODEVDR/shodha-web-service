@@ -51,7 +51,7 @@ export default function TripDetails() {
   const handleStartTrip = async () => {
     try {
       setActionLoading(true);
-      const response = await TripService.updateTripStatus(id, "in-progress");
+      const response = await TripService.startTrip(id);
 
       if (response.success) {
         Toast.show({
@@ -96,12 +96,72 @@ export default function TripDetails() {
     }
   };
 
+  const handlePauseTrip = async () => {
+    try {
+      setActionLoading(true);
+      const response = await TripService.pauseTrip(id);
+
+      if (response.success) {
+        Toast.show({
+          type: "success",
+          text1: "Trip Paused!",
+          text2: "Trip has been paused successfully",
+        });
+
+        loadTripDetails();
+      } else {
+        throw new Error(response.message || "Failed to pause trip");
+      }
+    } catch (error) {
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: error.message || "Failed to pause trip",
+      });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleResumeTrip = async () => {
+    try {
+      setActionLoading(true);
+      const response = await TripService.resumeTrip(id);
+
+      if (response.success) {
+        Toast.show({
+          type: "success",
+          text1: "Trip Resumed!",
+          text2: "Trip has been resumed successfully",
+        });
+
+        loadTripDetails();
+      } else {
+        throw new Error(response.message || "Failed to resume trip");
+      }
+    } catch (error) {
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: error.message || "Failed to resume trip",
+      });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleReportBreakdown = () => {
+    router.push(`/(driver)/breakdown/report?tripId=${id}`);
+  };
+
   const getStatusColor = (status) => {
     switch (status) {
       case "pending":
         return "bg-yellow-100 text-yellow-600";
       case "in-progress":
         return "bg-blue-100 text-blue-600";
+      case "paused":
+        return "bg-orange-100 text-orange-600";
       case "completed":
         return "bg-green-100 text-green-600";
       case "cancelled":
@@ -430,25 +490,118 @@ export default function TripDetails() {
             </TouchableOpacity>
           )}
           {trip.status === "in-progress" && (
-            <TouchableOpacity
-              className="bg-red-500 rounded-xl py-5 items-center"
-              onPress={handleEndTrip}
-              disabled={actionLoading}
-            >
-              {actionLoading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
+            <View className="mb-4">
+              <TouchableOpacity
+                className="bg-orange-500 rounded-xl py-5 items-center mb-4"
+                onPress={handlePauseTrip}
+                disabled={actionLoading}
+              >
+                {actionLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <View className="flex-row items-center">
+                    <Ionicons name="pause-circle" size={24} color="#fff" />
+                    <Text
+                      className="text-white text-lg font-semibold ml-2"
+                      style={{ fontFamily: "Poppins" }}
+                    >
+                      Pause Trip
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                className="bg-red-500 rounded-xl py-5 items-center mb-4"
+                onPress={handleEndTrip}
+                disabled={actionLoading}
+              >
+                {actionLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <View className="flex-row items-center">
+                    <Ionicons name="stop-circle" size={24} color="#fff" />
+                    <Text
+                      className="text-white text-lg font-semibold ml-2"
+                      style={{ fontFamily: "Poppins" }}
+                    >
+                      End Trip
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                className="bg-gray-500 rounded-xl py-5 items-center"
+                onPress={handleReportBreakdown}
+                disabled={actionLoading}
+              >
                 <View className="flex-row items-center">
-                  <Ionicons name="stop-circle" size={24} color="#fff" />
+                  <Ionicons name="warning" size={24} color="#fff" />
                   <Text
                     className="text-white text-lg font-semibold ml-2"
                     style={{ fontFamily: "Poppins" }}
                   >
-                    End Trip
+                    Report Breakdown
                   </Text>
                 </View>
-              )}
-            </TouchableOpacity>
+              </TouchableOpacity>
+            </View>
+          )}
+          {trip.status === "paused" && (
+            <View className="mb-4">
+              <TouchableOpacity
+                className="bg-green-500 rounded-xl py-5 items-center mb-4"
+                onPress={handleResumeTrip}
+                disabled={actionLoading}
+              >
+                {actionLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <View className="flex-row items-center">
+                    <Ionicons name="play-circle" size={24} color="#fff" />
+                    <Text
+                      className="text-white text-lg font-semibold ml-2"
+                      style={{ fontFamily: "Poppins" }}
+                    >
+                      Resume Trip
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                className="bg-red-500 rounded-xl py-5 items-center mb-4"
+                onPress={handleEndTrip}
+                disabled={actionLoading}
+              >
+                {actionLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <View className="flex-row items-center">
+                    <Ionicons name="stop-circle" size={24} color="#fff" />
+                    <Text
+                      className="text-white text-lg font-semibold ml-2"
+                      style={{ fontFamily: "Poppins" }}
+                    >
+                      End Trip
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                className="bg-gray-500 rounded-xl py-5 items-center"
+                onPress={handleReportBreakdown}
+                disabled={actionLoading}
+              >
+                <View className="flex-row items-center">
+                  <Ionicons name="warning" size={24} color="#fff" />
+                  <Text
+                    className="text-white text-lg font-semibold ml-2"
+                    style={{ fontFamily: "Poppins" }}
+                  >
+                    Report Breakdown
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
       </ScrollView>

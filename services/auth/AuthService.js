@@ -210,6 +210,90 @@ class AuthService {
       return null;
     }
   }
+
+  /**
+   * Decode JWT token to extract user info
+   */
+  decodeToken(token) {
+    try {
+      if (!token) return null;
+
+      // Split the JWT token
+      const parts = token.split(".");
+      if (parts.length !== 3) return null;
+
+      // Decode the payload (middle part)
+      const payload = parts[1];
+      const decodedPayload = atob(payload);
+      return JSON.parse(decodedPayload);
+    } catch (error) {
+      console.error("Failed to decode token:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Restore user state from token
+   */
+  async restoreUserFromToken() {
+    try {
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+      if (!token) return null;
+
+      // First try to get stored user data
+      const userDataString = await AsyncStorage.getItem(STORAGE_KEYS.USER_DATA);
+      if (userDataString) {
+        const userData = JSON.parse(userDataString);
+        return {
+          user: userData,
+          role: userData.role,
+          token,
+        };
+      }
+
+      // If no stored user data, decode from token and fetch from server
+      const decodedToken = this.decodeToken(token);
+      if (decodedToken && decodedToken.id) {
+        try {
+          // Try to refresh user data from server
+          const refreshedUser = await this.refreshUserData();
+          if (refreshedUser) {
+            return {
+              user: refreshedUser,
+              role: refreshedUser.role,
+              token,
+            };
+          }
+        } catch (error) {
+          console.log("Could not refresh user data, using token data");
+        }
+
+        // Fallback: create minimal user object from token
+        const userData = {
+          _id: decodedToken.id,
+          role: decodedToken.role,
+        };
+
+        // Store the minimal user data
+        await AsyncStorage.setItem(
+          STORAGE_KEYS.USER_DATA,
+          JSON.stringify(userData)
+        );
+        await AsyncStorage.setItem(STORAGE_KEYS.USER_ROLE, decodedToken.role);
+
+        return {
+          user: userData,
+          role: decodedToken.role,
+          token,
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.error("Failed to restore user from token:", error);
+      return null;
+    }
+  }
 }
 
 export default new AuthService();

@@ -108,13 +108,13 @@ export default function DriverDashboard() {
         // Send notification to admin
         await NotificationService.notifyShiftActivated(
           user?.name || "Driver",
-          response.data.truck?.registrationNumber || "N/A"
+          response.data?.truck?.registrationNumber || "N/A"
         );
 
         Toast.show({
           type: "success",
           text1: "Success",
-          text2: `Shift activated! Truck ${response.data.truck?.registrationNumber || ""} assigned`,
+          text2: `Shift activated! ${response.data?.truck?.registrationNumber ? `Truck ${response.data.truck.registrationNumber} assigned` : "Shift activated successfully"}`,
         });
         loadData();
       } else {

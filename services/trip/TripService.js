@@ -28,7 +28,7 @@ class TripService {
     try {
       // Get trips that are assigned or pending
       return await apiClient.get(API_CONFIG.endpoints.trips.getAll, {
-        params: { status: "assigned,pending,planned" },
+        params: { status: "assigned,pending,planned,in-progress" },
       });
     } catch (error) {
       throw error;
@@ -80,6 +80,28 @@ class TripService {
   }
 
   /**
+   * Pause a trip
+   */
+  async pauseTrip(id) {
+    try {
+      return await apiClient.put(API_CONFIG.endpoints.trips.pause(id));
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Resume a paused trip
+   */
+  async resumeTrip(id) {
+    try {
+      return await apiClient.put(API_CONFIG.endpoints.trips.resume(id));
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
    * Track location during trip
    */
   async trackLocation(id, locationData) {
@@ -124,6 +146,20 @@ class TripService {
         API_CONFIG.endpoints.trips.assign(id),
         assignData
       );
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Assign trip to multiple drivers (Admin only)
+   */
+  async assignTripToMultipleDrivers(id, driverIds, additionalData = {}) {
+    try {
+      return await apiClient.put(API_CONFIG.endpoints.trips.assign(id), {
+        driverIds,
+        ...additionalData,
+      });
     } catch (error) {
       throw error;
     }
