@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -17,6 +18,7 @@ import { AutoShiftService, NotificationService } from "../../services";
 export default function DriverDashboard() {
   const router = useRouter();
   const { user } = useSelector((state) => state.auth);
+  const { width } = useWindowDimensions();
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [currentShift, setCurrentShift] = useState(null);
@@ -26,6 +28,11 @@ export default function DriverDashboard() {
 
   const notificationListener = useRef();
   const responseListener = useRef();
+
+  // Responsive breakpoints
+  const isDesktop = width >= 1024;
+  const isTablet = width >= 768 && width < 1024;
+  const isMobile = width < 768;
 
   useEffect(() => {
     loadData();
@@ -39,24 +46,20 @@ export default function DriverDashboard() {
   }, []);
 
   const initializeNotifications = async () => {
-    // Request permissions
     const hasPermission = await NotificationService.requestPermissions();
     if (hasPermission) {
       console.log("Notification permissions granted");
     }
 
-    // Listen for notifications
     notificationListener.current = NotificationService.addNotificationListener(
       (notification) => {
         console.log("Notification received:", notification);
-        // Reload data when trip assigned
         if (notification.request.content.data.type === "TRIP_ASSIGNED") {
           loadData();
         }
       }
     );
 
-    // Listen for notification taps
     responseListener.current =
       NotificationService.addNotificationResponseListener((response) => {
         const screen = response.notification.request.content.data.screen;
@@ -105,7 +108,6 @@ export default function DriverDashboard() {
       );
 
       if (response.success) {
-        // Send notification to admin
         await NotificationService.notifyShiftActivated(
           user?.name || "Driver",
           response.data?.truck?.registrationNumber || "N/A"
@@ -187,284 +189,707 @@ export default function DriverDashboard() {
       icon: "time-outline",
       route: "/(driver)/shift/active",
       color: "#4CAF50",
+      description: "View current shift details",
     },
     {
       title: "Trip List",
       icon: "list-outline",
       route: "/(driver)/shift/trips",
       color: "#2196F3",
+      description: "Manage your trips",
     },
     {
       title: "Shift History",
       icon: "calendar-outline",
       route: "/(driver)/shift/history",
       color: "#FF9800",
+      description: "View past shifts",
     },
   ];
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#F9FAFB" }}>
       <ScrollView
-        className="flex-1"
+        contentContainerStyle={{
+          paddingHorizontal: isDesktop ? 48 : isTablet ? 32 : 20,
+          paddingVertical: isDesktop ? 32 : 24,
+          maxWidth: isDesktop ? 1440 : "100%",
+          width: "100%",
+          alignSelf: "center",
+        }}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        <View className="p-6">
-          {/* Welcome Section */}
-          <View className="bg-white rounded-2xl p-6 mb-6 shadow-sm">
-            <Text
-              className="text-2xl text-gray-800 mb-2"
-              style={{ fontFamily: "Cinzel" }}
+        {/* Header Section */}
+        <View
+          style={{
+            marginBottom: isDesktop ? 32 : 24,
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: "Cinzel",
+              fontSize: isDesktop ? 36 : isTablet ? 32 : 28,
+              color: "#1F2937",
+              marginBottom: 8,
+            }}
+          >
+            Driver Dashboard
+          </Text>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              marginTop: 8,
+            }}
+          >
+            <View
+              style={{
+                width: isDesktop ? 48 : 40,
+                height: isDesktop ? 48 : 40,
+                borderRadius: isDesktop ? 24 : 20,
+                backgroundColor: "#D4AF3720",
+                alignItems: "center",
+                justifyContent: "center",
+                marginRight: 12,
+              }}
             >
-              Welcome Back!
-            </Text>
-            <Text
-              className="text-lg text-[#D4AF37]"
-              style={{ fontFamily: "Poppins" }}
-            >
-              {user?.name || "Driver"}
-            </Text>
-            <View className="mt-4 pt-4 border-t border-gray-100">
-              <View className="flex-row items-center">
-                <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
-                <Text
-                  className="ml-2 text-gray-600"
-                  style={{ fontFamily: "Poppins" }}
-                >
-                  Status: Ready for Trip
-                </Text>
-              </View>
+              <Ionicons
+                name="person"
+                size={isDesktop ? 24 : 20}
+                color="#D4AF37"
+              />
+            </View>
+            <View>
+              <Text
+                style={{
+                  fontFamily: "Poppins",
+                  fontSize: isDesktop ? 16 : 14,
+                  color: "#6B7280",
+                }}
+              >
+                Welcome back,
+              </Text>
+              <Text
+                style={{
+                  fontFamily: "Poppins",
+                  fontSize: isDesktop ? 20 : 18,
+                  color: "#D4AF37",
+                  fontWeight: "600",
+                }}
+              >
+                {user?.name || "Driver"}
+              </Text>
             </View>
           </View>
+        </View>
 
-          {/* Current Shift Status */}
-          <View className="bg-white rounded-2xl p-5 mb-6 shadow-sm">
-            <Text
-              className="text-lg text-gray-800 mb-4"
-              style={{ fontFamily: "Poppins", fontWeight: "600" }}
+        {/* Desktop: Two Column Layout, Mobile: Single Column */}
+        <View
+          style={{
+            flexDirection: isDesktop ? "row" : "column",
+            gap: isDesktop ? 24 : 0,
+          }}
+        >
+          {/* Left Column / Top Section - Shift Status */}
+          <View
+            style={{
+              flex: isDesktop ? 1.5 : 1,
+              marginBottom: isMobile ? 24 : 0,
+            }}
+          >
+            {/* Current Shift Status Card */}
+            <View
+              style={{
+                backgroundColor: "white",
+                borderRadius: 20,
+                padding: isDesktop ? 32 : 24,
+                marginBottom: 24,
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.08,
+                shadowRadius: 12,
+                elevation: 3,
+                borderWidth: 1,
+                borderColor: "#F3F4F6",
+              }}
             >
-              Shift Status
-            </Text>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  marginBottom: 24,
+                }}
+              >
+                <View
+                  style={{
+                    width: 56,
+                    height: 56,
+                    borderRadius: 16,
+                    backgroundColor: "#D4AF3720",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginRight: 16,
+                  }}
+                >
+                  <Ionicons name="time" size={28} color="#D4AF37" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{
+                      fontFamily: "Cinzel",
+                      fontSize: isDesktop ? 24 : 20,
+                      color: "#1F2937",
+                      fontWeight: "600",
+                    }}
+                  >
+                    Shift Status
+                  </Text>
+                  {istTime && (
+                    <Text
+                      style={{
+                        fontFamily: "Poppins",
+                        fontSize: 13,
+                        color: "#6B7280",
+                        marginTop: 4,
+                      }}
+                    >
+                      Current Time: {istTime}
+                    </Text>
+                  )}
+                </View>
+              </View>
 
-            {/* Current Time & Shift Schedule */}
-            {currentShift && (
-              <View className="bg-green-50 rounded-xl p-4 mb-4">
-                <View className="flex-row items-center mb-2">
+              {/* Current Shift Schedule */}
+              {currentShift && (
+                <View
+                  style={{
+                    backgroundColor: "#10B98115",
+                    borderLeftWidth: 4,
+                    borderLeftColor: "#10B981",
+                    borderRadius: 12,
+                    padding: 16,
+                    marginBottom: 20,
+                  }}
+                >
                   <View
                     style={{
-                      width: 10,
-                      height: 10,
-                      borderRadius: 5,
-                      backgroundColor: "#10B981",
-                      marginRight: 8,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      marginBottom: 8,
                     }}
-                  />
+                  >
+                    <View
+                      style={{
+                        width: 12,
+                        height: 12,
+                        borderRadius: 6,
+                        backgroundColor: "#10B981",
+                        marginRight: 10,
+                      }}
+                    />
+                    <Text
+                      style={{
+                        fontFamily: "Poppins",
+                        fontSize: isDesktop ? 18 : 16,
+                        fontWeight: "700",
+                        color: "#10B981",
+                      }}
+                    >
+                      {currentShift.name} - ACTIVE
+                    </Text>
+                  </View>
                   <Text
                     style={{
                       fontFamily: "Poppins",
-                      fontSize: 16,
-                      fontWeight: "700",
-                      color: "#10B981",
+                      fontSize: 14,
+                      color: "#4B5563",
+                      marginLeft: 22,
                     }}
                   >
-                    {currentShift.name} - ACTIVE
+                    {currentShift.startHour}:
+                    {String(currentShift.startMinute).padStart(2, "0")} -{" "}
+                    {currentShift.endHour}:
+                    {String(currentShift.endMinute).padStart(2, "0")} IST
+                  </Text>
+                </View>
+              )}
+
+              {/* My Active Shift or Activate Button */}
+              {myActiveShift ? (
+                <View>
+                  <View
+                    style={{
+                      backgroundColor: "#3B82F615",
+                      borderRadius: 16,
+                      padding: 20,
+                      marginBottom: 16,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontFamily: "Cinzel",
+                        fontSize: 18,
+                        fontWeight: "600",
+                        color: "#1F2937",
+                        marginBottom: 16,
+                      }}
+                    >
+                      Your Active Shift
+                    </Text>
+
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        marginBottom: 12,
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 10,
+                          backgroundColor: "#3B82F620",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          marginRight: 12,
+                        }}
+                      >
+                        <Ionicons name="car" size={20} color="#3B82F6" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={{
+                            fontFamily: "Poppins",
+                            fontSize: 13,
+                            color: "#6B7280",
+                          }}
+                        >
+                          Truck Assigned
+                        </Text>
+                        <Text
+                          style={{
+                            fontFamily: "Poppins",
+                            fontSize: 16,
+                            color: "#1F2937",
+                            fontWeight: "600",
+                          }}
+                        >
+                          {myActiveShift.truck?.registrationNumber || "N/A"}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        marginBottom: 12,
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 10,
+                          backgroundColor: "#3B82F620",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          marginRight: 12,
+                        }}
+                      >
+                        <Ionicons name="time" size={20} color="#3B82F6" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={{
+                            fontFamily: "Poppins",
+                            fontSize: 13,
+                            color: "#6B7280",
+                          }}
+                        >
+                          Started At
+                        </Text>
+                        <Text
+                          style={{
+                            fontFamily: "Poppins",
+                            fontSize: 16,
+                            color: "#1F2937",
+                            fontWeight: "600",
+                          }}
+                        >
+                          {new Date(
+                            myActiveShift.startTime
+                          ).toLocaleTimeString()}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {myActiveShift.trips && myActiveShift.trips.length > 0 && (
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                        }}
+                      >
+                        <View
+                          style={{
+                            width: 40,
+                            height: 40,
+                            borderRadius: 10,
+                            backgroundColor: "#3B82F620",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            marginRight: 12,
+                          }}
+                        >
+                          <Ionicons name="list" size={20} color="#3B82F6" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={{
+                              fontFamily: "Poppins",
+                              fontSize: 13,
+                              color: "#6B7280",
+                            }}
+                          >
+                            Assigned Trips
+                          </Text>
+                          <Text
+                            style={{
+                              fontFamily: "Poppins",
+                              fontSize: 16,
+                              color: "#1F2937",
+                              fontWeight: "600",
+                            }}
+                          >
+                            {myActiveShift.trips.length} trip(s)
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Action Buttons */}
+                  <TouchableOpacity
+                    onPress={() => router.push("/(driver)/shift/active")}
+                    style={{
+                      backgroundColor: "#10B981",
+                      borderRadius: 14,
+                      paddingVertical: 16,
+                      alignItems: "center",
+                      marginBottom: 12,
+                      flexDirection: "row",
+                      justifyContent: "center",
+                      shadowColor: "#10B981",
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.2,
+                      shadowRadius: 8,
+                      elevation: 4,
+                    }}
+                  >
+                    <Ionicons name="map" size={20} color="#fff" />
+                    <Text
+                      style={{
+                        fontFamily: "Poppins",
+                        fontSize: 16,
+                        color: "white",
+                        fontWeight: "600",
+                        marginLeft: 8,
+                      }}
+                    >
+                      View Route & Track
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={handleEndShift}
+                    style={{
+                      backgroundColor: "#EF4444",
+                      borderRadius: 14,
+                      paddingVertical: 16,
+                      alignItems: "center",
+                    }}
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text
+                        style={{
+                          fontFamily: "Poppins",
+                          fontSize: 16,
+                          color: "white",
+                          fontWeight: "600",
+                        }}
+                      >
+                        End Shift
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View>
+                  <View
+                    style={{
+                      alignItems: "center",
+                      paddingVertical: 32,
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 80,
+                        height: 80,
+                        borderRadius: 40,
+                        backgroundColor: "#F3F4F6",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        marginBottom: 16,
+                      }}
+                    >
+                      <Ionicons name="time-outline" size={40} color="#9CA3AF" />
+                    </View>
+                    <Text
+                      style={{
+                        fontFamily: "Poppins",
+                        fontSize: 16,
+                        color: "#6B7280",
+                        textAlign: "center",
+                      }}
+                    >
+                      No active shift
+                    </Text>
+                    <Text
+                      style={{
+                        fontFamily: "Poppins",
+                        fontSize: 13,
+                        color: "#9CA3AF",
+                        textAlign: "center",
+                        marginTop: 4,
+                      }}
+                    >
+                      Activate your shift to start working
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    onPress={handleActivateShift}
+                    style={{
+                      backgroundColor: currentShift ? "#D4AF37" : "#D1D5DB",
+                      borderRadius: 14,
+                      paddingVertical: 16,
+                      alignItems: "center",
+                      shadowColor: currentShift ? "#D4AF37" : "#000",
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: currentShift ? 0.2 : 0.1,
+                      shadowRadius: 8,
+                      elevation: currentShift ? 4 : 2,
+                    }}
+                    disabled={loading || !currentShift}
+                  >
+                    {loading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text
+                        style={{
+                          fontFamily: "Poppins",
+                          fontSize: 16,
+                          color: "white",
+                          fontWeight: "600",
+                        }}
+                      >
+                        {currentShift
+                          ? "Activate Shift"
+                          : "No Active Shift Period"}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+
+            {/* Info Card - Mobile Only (moved to bottom on desktop) */}
+            {isMobile && (
+              <View
+                style={{
+                  backgroundColor: "#D4AF37",
+                  borderRadius: 20,
+                  padding: 24,
+                  marginBottom: 24,
+                }}
+              >
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    marginBottom: 12,
+                  }}
+                >
+                  <Ionicons name="information-circle" size={24} color="#fff" />
+                  <Text
+                    style={{
+                      fontFamily: "Cinzel",
+                      fontSize: 18,
+                      color: "white",
+                      marginLeft: 12,
+                      fontWeight: "600",
+                    }}
+                  >
+                    Important
                   </Text>
                 </View>
                 <Text
                   style={{
                     fontFamily: "Poppins",
-                    fontSize: 13,
-                    color: "#666",
+                    fontSize: 14,
+                    color: "white",
+                    lineHeight: 22,
                   }}
                 >
-                  {currentShift.startHour}:
-                  {String(currentShift.startMinute).padStart(2, "0")} -{" "}
-                  {currentShift.endHour}:
-                  {String(currentShift.endMinute).padStart(2, "0")} IST
+                  Remember to start your shift before beginning any trip. Keep
+                  your GPS enabled for accurate tracking.
                 </Text>
-                {istTime && (
-                  <Text
-                    style={{
-                      fontFamily: "Poppins",
-                      fontSize: 12,
-                      color: "#999",
-                      marginTop: 4,
-                    }}
-                  >
-                    Current Time: {istTime}
-                  </Text>
-                )}
               </View>
             )}
+          </View>
 
-            {/* My Active Shift */}
-            {myActiveShift ? (
-              <View>
-                <View className="bg-blue-50 rounded-xl p-4 mb-3">
-                  <Text
+          {/* Right Column / Bottom Section - Quick Access */}
+          <View
+            style={{
+              flex: isDesktop ? 1 : 1,
+            }}
+          >
+            {/* Quick Access Menu */}
+            <View>
+              <Text
+                style={{
+                  fontFamily: "Cinzel",
+                  fontSize: isDesktop ? 24 : 20,
+                  color: "#1F2937",
+                  marginBottom: 16,
+                  fontWeight: "600",
+                }}
+              >
+                Quick Access
+              </Text>
+              {menuItems.map((item, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={{
+                    backgroundColor: "white",
+                    borderRadius: 16,
+                    padding: isDesktop ? 24 : 20,
+                    marginBottom: 16,
+                    shadowColor: "#000",
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.08,
+                    shadowRadius: 12,
+                    elevation: 2,
+                    borderWidth: 1,
+                    borderColor: "#F3F4F6",
+                  }}
+                  onPress={() => router.push(item.route)}
+                >
+                  <View
                     style={{
-                      fontFamily: "Poppins",
-                      fontSize: 15,
-                      fontWeight: "600",
-                      color: "#1F2937",
-                      marginBottom: 8,
+                      flexDirection: "row",
+                      alignItems: "center",
                     }}
                   >
-                    Your Active Shift
-                  </Text>
-                  <View className="flex-row items-center mb-2">
-                    <Ionicons name="car" size={18} color="#3B82F6" />
-                    <Text
-                      className="ml-2 text-gray-700"
-                      style={{ fontFamily: "Poppins" }}
+                    <View
+                      style={{
+                        width: isDesktop ? 64 : 56,
+                        height: isDesktop ? 64 : 56,
+                        borderRadius: 16,
+                        backgroundColor: `${item.color}15`,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        marginRight: 16,
+                      }}
                     >
-                      Truck: {myActiveShift.truck?.registrationNumber || "N/A"}
-                    </Text>
-                  </View>
-                  <View className="flex-row items-center">
-                    <Ionicons name="time" size={18} color="#3B82F6" />
-                    <Text
-                      className="ml-2 text-gray-700"
-                      style={{ fontFamily: "Poppins" }}
-                    >
-                      Started:{" "}
-                      {new Date(myActiveShift.startTime).toLocaleTimeString()}
-                    </Text>
-                  </View>
-                  {myActiveShift.trips && myActiveShift.trips.length > 0 && (
-                    <View className="flex-row items-center mt-2">
-                      <Ionicons name="list" size={18} color="#3B82F6" />
+                      <Ionicons
+                        name={item.icon}
+                        size={isDesktop ? 28 : 24}
+                        color={item.color}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
                       <Text
-                        className="ml-2 text-gray-700"
-                        style={{ fontFamily: "Poppins" }}
+                        style={{
+                          fontFamily: "Cinzel",
+                          fontSize: isDesktop ? 18 : 16,
+                          color: "#1F2937",
+                          marginBottom: 4,
+                          fontWeight: "600",
+                        }}
                       >
-                        {myActiveShift.trips.length} trip(s) assigned
+                        {item.title}
+                      </Text>
+                      <Text
+                        style={{
+                          fontFamily: "Poppins",
+                          fontSize: 13,
+                          color: "#6B7280",
+                        }}
+                      >
+                        {item.description}
                       </Text>
                     </View>
-                  )}
-                </View>
-
-                {/* View Route Button */}
-                <TouchableOpacity
-                  onPress={() => router.push("/(driver)/shift/active")}
-                  className="bg-green-500 rounded-lg py-3 items-center mb-3 flex-row justify-center"
-                >
-                  <Ionicons name="map" size={20} color="#fff" />
-                  <Text
-                    className="text-white font-semibold ml-2"
-                    style={{ fontFamily: "Poppins" }}
-                  >
-                    View Route & Track Location
-                  </Text>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={24}
+                      color={item.color}
+                    />
+                  </View>
                 </TouchableOpacity>
+              ))}
+            </View>
 
-                <TouchableOpacity
-                  onPress={handleEndShift}
-                  className="bg-red-500 rounded-lg py-3 items-center"
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text
-                      className="text-white font-semibold"
-                      style={{ fontFamily: "Poppins" }}
-                    >
-                      End Shift
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View>
-                <View className="items-center py-4">
-                  <Ionicons name="time-outline" size={40} color="#D1D5DB" />
-                  <Text
-                    className="text-gray-500 mt-2 text-center"
-                    style={{ fontFamily: "Poppins" }}
-                  >
-                    No active shift
-                  </Text>
-                </View>
-
-                <TouchableOpacity
-                  onPress={handleActivateShift}
-                  className="bg-[#D4AF37] rounded-lg py-3 items-center"
-                  disabled={loading || !currentShift}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text
-                      className="text-white font-semibold"
-                      style={{ fontFamily: "Poppins" }}
-                    >
-                      {currentShift
-                        ? "Activate Shift"
-                        : "No Active Shift Period"}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-
-          {/* Menu Grid */}
-          <View className="mb-6">
-            <Text
-              className="text-xl text-gray-800 mb-4"
-              style={{ fontFamily: "Cinzel" }}
-            >
-              Quick Access
-            </Text>
-            {menuItems.map((item, index) => (
-              <TouchableOpacity
-                key={index}
-                className="bg-white rounded-xl p-5 mb-4 flex-row items-center shadow-sm"
-                onPress={() => router.push(item.route)}
+            {/* Info Card - Desktop/Tablet Only */}
+            {!isMobile && (
+              <View
+                style={{
+                  backgroundColor: "#D4AF37",
+                  borderRadius: 20,
+                  padding: isDesktop ? 28 : 24,
+                  marginTop: 8,
+                }}
               >
                 <View
-                  className="w-14 h-14 rounded-full items-center justify-center"
-                  style={{ backgroundColor: `${item.color}20` }}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    marginBottom: 12,
+                  }}
                 >
-                  <Ionicons name={item.icon} size={28} color={item.color} />
-                </View>
-                <View className="flex-1 ml-4">
+                  <Ionicons name="information-circle" size={24} color="#fff" />
                   <Text
-                    className="text-lg text-gray-800"
-                    style={{ fontFamily: "Poppins" }}
+                    style={{
+                      fontFamily: "Cinzel",
+                      fontSize: 18,
+                      color: "white",
+                      marginLeft: 12,
+                      fontWeight: "600",
+                    }}
                   >
-                    {item.title}
+                    Important
                   </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={24} color="#D4AF37" />
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Info Card */}
-          <View className="bg-[#D4AF37] rounded-2xl p-6">
-            <View className="flex-row items-center mb-3">
-              <Ionicons
-                name="information-circle-outline"
-                size={24}
-                color="#fff"
-              />
-              <Text
-                className="text-white text-lg ml-2"
-                style={{ fontFamily: "Cinzel" }}
-              >
-                Important
-              </Text>
-            </View>
-            <Text
-              className="text-white text-sm leading-6"
-              style={{ fontFamily: "Poppins" }}
-            >
-              Remember to start your shift before beginning any trip. Keep your
-              GPS enabled for accurate tracking.
-            </Text>
+                <Text
+                  style={{
+                    fontFamily: "Poppins",
+                    fontSize: 14,
+                    color: "white",
+                    lineHeight: 22,
+                  }}
+                >
+                  Remember to start your shift before beginning any trip. Keep
+                  your GPS enabled for accurate tracking.
+                </Text>
+              </View>
+            )}
           </View>
         </View>
       </ScrollView>

@@ -26,9 +26,11 @@ export default function TripDetails() {
     loadTripDetails();
   }, [id]);
 
-  const loadTripDetails = async () => {
+  const loadTripDetails = async (forceRefresh = false) => {
     try {
       setLoading(true);
+
+      // Add cache-busting for fresh data
       const response = await TripService.getTripById(id);
 
       if (response.success) {
@@ -66,7 +68,7 @@ export default function TripDetails() {
           user?.name || "Driver"
         );
 
-        loadTripDetails();
+        loadTripDetails(true); // Force refresh after action
       } else {
         throw new Error(response.message || "Failed to start trip");
       }
@@ -108,7 +110,7 @@ export default function TripDetails() {
           text2: "Trip has been paused successfully",
         });
 
-        loadTripDetails();
+        loadTripDetails(true); // Force refresh after action
       } else {
         throw new Error(response.message || "Failed to pause trip");
       }
@@ -135,7 +137,7 @@ export default function TripDetails() {
           text2: "Trip has been resumed successfully",
         });
 
-        loadTripDetails();
+        loadTripDetails(true); // Force refresh after action
       } else {
         throw new Error(response.message || "Failed to resume trip");
       }

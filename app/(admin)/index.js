@@ -4,6 +4,7 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -19,6 +20,7 @@ import { STORAGE_KEYS } from "../../utils";
 export default function AdminDashboard() {
   const router = useRouter();
   const { user } = useSelector((state) => state.auth);
+  const { width } = useWindowDimensions();
   const notificationListener = useRef();
   const responseListener = useRef();
   const [stats, setStats] = useState({
@@ -29,9 +31,21 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [realtimeNotifications, setRealtimeNotifications] = useState([]);
   const sseCleanupRef = useRef(null);
+  const lastStatsUpdateRef = useRef(0);
+
+  // Responsive breakpoints
+  const isDesktop = width >= 1024;
+  const isTablet = width >= 768 && width < 1024;
+  const isMobile = width < 768;
+
+  // Calculate grid columns for menu items
+  const getGridColumns = () => {
+    if (isDesktop) return 3;
+    if (isTablet) return 2;
+    return 1;
+  };
 
   useEffect(() => {
-    // Wait a bit to ensure token is saved before making API calls
     const timer = setTimeout(() => {
       loadDashboardStats();
       initializeNotifications();
@@ -49,11 +63,9 @@ export default function AdminDashboard() {
     };
   }, []);
 
-  // Handle SSE notifications
   const handleSSENotification = useCallback((notification) => {
     console.log("SSE notification received:", notification);
 
-    // Add to notifications list (keep last 10)
     setRealtimeNotifications((prev) => {
       const newNotif = {
         id: Date.now(),
@@ -63,7 +75,6 @@ export default function AdminDashboard() {
       return [newNotif, ...prev].slice(0, 10);
     });
 
-    // Reload stats when relevant events occur
     if (
       [
         "TRIP_STARTED",
@@ -72,10 +83,13 @@ export default function AdminDashboard() {
         "TRIP_EXPIRED",
       ].includes(notification.type)
     ) {
-      loadDashboardStats();
+      const now = Date.now();
+      if (now - lastStatsUpdateRef.current > 5000) {
+        lastStatsUpdateRef.current = now;
+        loadDashboardStats(false);
+      }
     }
 
-    // Show toast for important notifications
     const toastMessages = {
       TRIP_STARTED: {
         title: "Trip Started",
@@ -117,29 +131,29 @@ export default function AdminDashboard() {
   };
 
   const initializeNotifications = async () => {
-    // Request permissions
     const hasPermission = await NotificationService.requestPermissions();
     if (hasPermission) {
       console.log("Admin notification permissions granted");
     }
 
-    // Listen for notifications
     notificationListener.current = NotificationService.addNotificationListener(
       (notification) => {
         console.log("Admin notification received:", notification);
         const notifData = notification.request.content.data;
 
-        // Reload stats when shift activated or trip started
         if (
           notifData.type === "SHIFT_ACTIVATED" ||
           notifData.type === "TRIP_STARTED"
         ) {
-          loadDashboardStats();
+          const now = Date.now();
+          if (now - lastStatsUpdateRef.current > 5000) {
+            lastStatsUpdateRef.current = now;
+            loadDashboardStats(false);
+          }
         }
       }
     );
 
-    // Listen for notification taps
     responseListener.current =
       NotificationService.addNotificationResponseListener((response) => {
         const screen = response.notification.request.content.data.screen;
@@ -149,11 +163,12 @@ export default function AdminDashboard() {
       });
   };
 
-  const loadDashboardStats = async () => {
+  const loadDashboardStats = async (showLoadingState = true) => {
     try {
-      setLoading(true);
+      if (showLoadingState) {
+        setLoading(true);
+      }
 
-      // Verify token exists before making calls
       const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
       if (!token) {
         console.warn("No token found, redirecting to login");
@@ -161,14 +176,12 @@ export default function AdminDashboard() {
         return;
       }
 
-      // Make requests individually to better handle errors
       let activeTrucks = 0;
       let activeDrivers = 0;
       let inTransit = 0;
 
       try {
         const trucksResponse = await TruckService.getAllTrucks();
-        // Count all trucks regardless of status
         activeTrucks = trucksResponse.success
           ? (trucksResponse.data || []).length
           : 0;
@@ -186,7 +199,6 @@ export default function AdminDashboard() {
           "Drivers response:",
           JSON.stringify(driversResponse, null, 2)
         );
-        // apiClient already unwraps the response, so we access directly
         activeDrivers = driversResponse.success
           ? (driversResponse.data || []).length
           : 0;
@@ -201,7 +213,6 @@ export default function AdminDashboard() {
       try {
         const tripsResponse = await apiClient.get("/trips");
         console.log("Trips response:", JSON.stringify(tripsResponse, null, 2));
-        // apiClient already unwraps the response
         inTransit = tripsResponse.success
           ? (tripsResponse.data || []).filter(
               (trip) =>
@@ -218,13 +229,17 @@ export default function AdminDashboard() {
       setStats({ activeTrucks, activeDrivers, inTransit });
     } catch (error) {
       console.error("Failed to load dashboard stats:", error);
-      Toast.show({
-        type: "error",
-        text1: "Error",
-        text2: "Failed to load dashboard data",
-      });
+      if (showLoadingState) {
+        Toast.show({
+          type: "error",
+          text1: "Error",
+          text2: "Failed to load dashboard data",
+        });
+      }
     } finally {
-      setLoading(false);
+      if (showLoadingState) {
+        setLoading(false);
+      }
     }
   };
 
@@ -314,206 +329,365 @@ export default function AdminDashboard() {
     },
   ];
 
-  return (
-    <SafeAreaView className="flex-1 bg-gray-50">
-      <ScrollView className="flex-1">
-        <View className="p-6">
-          {/* Welcome Section */}
-          <View className="bg-[#D4AF37] rounded-2xl p-6 mb-6 shadow-lg">
+  // Render stat card
+  const renderStatCard = (label, value, icon, color) => (
+    <View
+      style={{
+        flex: 1,
+        minWidth: isDesktop ? 200 : isMobile ? "100%" : "48%",
+        backgroundColor: "white",
+        borderRadius: 16,
+        padding: isDesktop ? 24 : 20,
+        marginBottom: isMobile ? 12 : 0,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 3,
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center" }}>
+        <View
+          style={{
+            width: isDesktop ? 56 : 48,
+            height: isDesktop ? 56 : 48,
+            borderRadius: 12,
+            backgroundColor: `${color}15`,
+            alignItems: "center",
+            justifyContent: "center",
+            marginRight: 16,
+          }}
+        >
+          <Ionicons name={icon} size={isDesktop ? 28 : 24} color={color} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text
+            style={{
+              fontFamily: "Poppins",
+              fontSize: isDesktop ? 14 : 12,
+              color: "#6B7280",
+              marginBottom: 4,
+            }}
+          >
+            {label}
+          </Text>
+          {loading ? (
+            <ActivityIndicator size="small" color={color} />
+          ) : (
             <Text
-              className="text-2xl text-white mb-2"
-              style={{ fontFamily: "Cinzel" }}
+              style={{
+                fontFamily: "Cinzel",
+                fontSize: isDesktop ? 32 : 28,
+                color: "#1F2937",
+                fontWeight: "bold",
+              }}
             >
-              Admin Dashboard
+              {value}
             </Text>
-            <Text
-              className="text-lg text-white opacity-90"
-              style={{ fontFamily: "Poppins" }}
-            >
-              Welcome, {user?.name || "Admin"}
-            </Text>
-            <View className="flex-row mt-4 pt-4 border-t border-white/20">
-              <View className="flex-1">
-                <Text
-                  className="text-white text-xs opacity-75"
-                  style={{ fontFamily: "Poppins" }}
-                >
-                  Total Trucks
-                </Text>
-                {loading ? (
-                  <ActivityIndicator
-                    size="small"
-                    color="#fff"
-                    className="mt-1"
-                  />
-                ) : (
-                  <Text
-                    className="text-white text-2xl font-bold mt-1"
-                    style={{ fontFamily: "Poppins" }}
-                  >
-                    {stats.activeTrucks}
-                  </Text>
-                )}
-              </View>
-              <View className="flex-1">
-                <Text
-                  className="text-white text-xs opacity-75"
-                  style={{ fontFamily: "Poppins" }}
-                >
-                  Total Drivers
-                </Text>
-                {loading ? (
-                  <ActivityIndicator
-                    size="small"
-                    color="#fff"
-                    className="mt-1"
-                  />
-                ) : (
-                  <Text
-                    className="text-white text-2xl font-bold mt-1"
-                    style={{ fontFamily: "Poppins" }}
-                  >
-                    {stats.activeDrivers}
-                  </Text>
-                )}
-              </View>
-              <View className="flex-1">
-                <Text
-                  className="text-white text-xs opacity-75"
-                  style={{ fontFamily: "Poppins" }}
-                >
-                  In Transit
-                </Text>
-                {loading ? (
-                  <ActivityIndicator
-                    size="small"
-                    color="#fff"
-                    className="mt-1"
-                  />
-                ) : (
-                  <Text
-                    className="text-white text-2xl font-bold mt-1"
-                    style={{ fontFamily: "Poppins" }}
-                  >
-                    {stats.inTransit}
-                  </Text>
-                )}
-              </View>
-            </View>
-          </View>
+          )}
+        </View>
+      </View>
+    </View>
+  );
 
-          {/* Real-time Notifications Panel */}
-          {realtimeNotifications.length > 0 && (
-            <View className="bg-gray-50 border border-gray-200 rounded-2xl p-4 mb-6">
-              <View className="flex-row items-center justify-between mb-3">
+  // Render menu item card
+  const renderMenuItem = (item) => (
+    <TouchableOpacity
+      key={item.route}
+      style={{
+        width: isDesktop
+          ? `${100 / getGridColumns() - 2}%`
+          : isTablet
+            ? "48%"
+            : "100%",
+        backgroundColor: "white",
+        borderRadius: 16,
+        padding: isDesktop ? 24 : 20,
+        marginBottom: 16,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+        elevation: 2,
+        borderWidth: 1,
+        borderColor: "#F3F4F6",
+      }}
+      onPress={() => router.push(item.route)}
+    >
+      <View
+        style={{
+          width: isDesktop ? 64 : 56,
+          height: isDesktop ? 64 : 56,
+          borderRadius: 16,
+          backgroundColor: `${item.color}15`,
+          alignItems: "center",
+          justifyContent: "center",
+          marginBottom: 16,
+        }}
+      >
+        <Ionicons
+          name={item.icon}
+          size={isDesktop ? 32 : 28}
+          color={item.color}
+        />
+      </View>
+      <Text
+        style={{
+          fontFamily: "Cinzel",
+          fontSize: isDesktop ? 18 : 16,
+          color: "#1F2937",
+          marginBottom: 8,
+          fontWeight: "600",
+        }}
+      >
+        {item.title}
+      </Text>
+      <Text
+        style={{
+          fontFamily: "Poppins",
+          fontSize: isDesktop ? 14 : 13,
+          color: "#6B7280",
+          lineHeight: 20,
+        }}
+      >
+        {item.description}
+      </Text>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          marginTop: 12,
+        }}
+      >
+        <Text
+          style={{
+            fontFamily: "Poppins",
+            fontSize: 13,
+            color: item.color,
+            fontWeight: "600",
+            marginRight: 4,
+          }}
+        >
+          Open
+        </Text>
+        <Ionicons name="arrow-forward" size={16} color={item.color} />
+      </View>
+    </TouchableOpacity>
+  );
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#F9FAFB" }}>
+      <ScrollView
+        contentContainerStyle={{
+          paddingHorizontal: isDesktop ? 48 : isTablet ? 32 : 20,
+          paddingVertical: isDesktop ? 32 : 24,
+          maxWidth: isDesktop ? 1440 : "100%",
+          width: "100%",
+          alignSelf: "center",
+        }}
+      >
+        {/* Header Section */}
+        <View
+          style={{
+            marginBottom: isDesktop ? 32 : 24,
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: "Cinzel",
+              fontSize: isDesktop ? 36 : isTablet ? 32 : 28,
+              color: "#1F2937",
+              marginBottom: 8,
+            }}
+          >
+            Admin Dashboard
+          </Text>
+          <Text
+            style={{
+              fontFamily: "Poppins",
+              fontSize: isDesktop ? 16 : 14,
+              color: "#6B7280",
+            }}
+          >
+            Welcome back, {user?.name || "Admin"}
+          </Text>
+        </View>
+
+        {/* Stats Cards */}
+        <View
+          style={{
+            flexDirection: isDesktop ? "row" : isMobile ? "column" : "row",
+            flexWrap: isTablet ? "wrap" : "nowrap",
+            gap: isDesktop ? 20 : isTablet ? 12 : 0,
+            marginBottom: isDesktop ? 32 : 24,
+          }}
+        >
+          {renderStatCard("Total Trucks", stats.activeTrucks, "car", "#2196F3")}
+          {renderStatCard(
+            "Total Drivers",
+            stats.activeDrivers,
+            "people",
+            "#9C27B0"
+          )}
+          {renderStatCard("In Transit", stats.inTransit, "navigate", "#10B981")}
+        </View>
+
+        {/* Real-time Notifications Panel */}
+        {realtimeNotifications.length > 0 && (
+          <View
+            style={{
+              backgroundColor: "white",
+              borderRadius: 16,
+              padding: isDesktop ? 24 : 20,
+              marginBottom: isDesktop ? 32 : 24,
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.08,
+              shadowRadius: 12,
+              elevation: 2,
+              borderWidth: 1,
+              borderColor: "#F3F4F6",
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 20,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Ionicons
+                  name="notifications"
+                  size={24}
+                  color="#D4AF37"
+                  style={{ marginRight: 12 }}
+                />
                 <Text
-                  className="text-lg text-gray-800"
-                  style={{ fontFamily: "Cinzel" }}
+                  style={{
+                    fontFamily: "Cinzel",
+                    fontSize: isDesktop ? 20 : 18,
+                    color: "#1F2937",
+                    fontWeight: "600",
+                  }}
                 >
                   Recent Activity
                 </Text>
-                <TouchableOpacity onPress={() => setRealtimeNotifications([])}>
-                  <Text
-                    style={{
-                      fontFamily: "Poppins",
-                      fontSize: 12,
-                      color: "#6B7280",
-                    }}
-                  >
-                    Clear
-                  </Text>
-                </TouchableOpacity>
               </View>
-              {realtimeNotifications.slice(0, 5).map((notif) => {
-                const getNotifStyle = (type) => {
-                  switch (type) {
-                    case "TRIP_STARTED":
-                      return { icon: "play-circle", color: "#3B82F6" };
-                    case "TRIP_COMPLETED":
-                      return { icon: "checkmark-circle", color: "#10B981" };
-                    case "BREAKDOWN_REPORTED":
-                      return { icon: "warning", color: "#EF4444" };
-                    case "TRIP_EXPIRED":
-                      return { icon: "time-outline", color: "#F59E0B" };
-                    default:
-                      return { icon: "information-circle", color: "#6B7280" };
-                  }
-                };
-                const style = getNotifStyle(notif.type);
-                return (
-                  <View
-                    key={notif.id}
-                    className="flex-row items-start py-2 border-b border-gray-100"
-                  >
-                    <Ionicons name={style.icon} size={20} color={style.color} />
-                    <View className="flex-1 ml-3">
-                      <Text
-                        style={{
-                          fontFamily: "Poppins",
-                          fontSize: 13,
-                          color: "#374151",
-                        }}
-                        numberOfLines={2}
-                      >
-                        {notif.message || notif.type.replace(/_/g, " ")}
-                      </Text>
-                      <Text
-                        style={{
-                          fontFamily: "Poppins",
-                          fontSize: 11,
-                          color: "#9CA3AF",
-                        }}
-                      >
-                        {new Date(notif.timestamp).toLocaleTimeString()}
-                      </Text>
-                    </View>
-                  </View>
-                );
-              })}
+              <TouchableOpacity onPress={() => setRealtimeNotifications([])}>
+                <Text
+                  style={{
+                    fontFamily: "Poppins",
+                    fontSize: 13,
+                    color: "#6B7280",
+                    fontWeight: "500",
+                  }}
+                >
+                  Clear All
+                </Text>
+              </TouchableOpacity>
             </View>
-          )}
-
-          {/* Menu Sections */}
-          {menuSections.map((section, sectionIndex) => (
-            <View key={sectionIndex} className="mb-6">
-              <Text
-                className="text-xl text-gray-800 mb-4"
-                style={{ fontFamily: "Cinzel" }}
-              >
-                {section.title}
-              </Text>
-              {section.items.map((item, itemIndex) => (
-                <TouchableOpacity
-                  key={itemIndex}
-                  className="bg-gray-50 border border-gray-200 rounded-xl p-5 mb-3 flex-row items-center"
-                  onPress={() => router.push(item.route)}
+            {realtimeNotifications.slice(0, 5).map((notif) => {
+              const getNotifStyle = (type) => {
+                switch (type) {
+                  case "TRIP_STARTED":
+                    return { icon: "play-circle", color: "#3B82F6" };
+                  case "TRIP_COMPLETED":
+                    return { icon: "checkmark-circle", color: "#10B981" };
+                  case "BREAKDOWN_REPORTED":
+                    return { icon: "warning", color: "#EF4444" };
+                  case "TRIP_EXPIRED":
+                    return { icon: "time-outline", color: "#F59E0B" };
+                  default:
+                    return { icon: "information-circle", color: "#6B7280" };
+                }
+              };
+              const style = getNotifStyle(notif.type);
+              return (
+                <View
+                  key={notif.id}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "flex-start",
+                    paddingVertical: 12,
+                    borderBottomWidth: 1,
+                    borderBottomColor: "#F3F4F6",
+                  }}
                 >
                   <View
-                    className="w-14 h-14 rounded-full items-center justify-center"
-                    style={{ backgroundColor: `${item.color}20` }}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 10,
+                      backgroundColor: `${style.color}15`,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      marginRight: 12,
+                    }}
                   >
-                    <Ionicons name={item.icon} size={28} color={item.color} />
+                    <Ionicons name={style.icon} size={20} color={style.color} />
                   </View>
-                  <View className="flex-1 ml-4">
+                  <View style={{ flex: 1 }}>
                     <Text
-                      className="text-lg text-gray-800"
-                      style={{ fontFamily: "Poppins" }}
+                      style={{
+                        fontFamily: "Poppins",
+                        fontSize: isDesktop ? 14 : 13,
+                        color: "#374151",
+                        lineHeight: 20,
+                      }}
+                      numberOfLines={2}
                     >
-                      {item.title}
+                      {typeof notif.message === "string"
+                        ? notif.message
+                        : notif.type.replace(/_/g, " ")}
                     </Text>
                     <Text
-                      className="text-sm text-gray-500 mt-1"
-                      style={{ fontFamily: "Poppins" }}
+                      style={{
+                        fontFamily: "Poppins",
+                        fontSize: 12,
+                        color: "#9CA3AF",
+                        marginTop: 4,
+                      }}
                     >
-                      {item.description}
+                      {new Date(notif.timestamp).toLocaleTimeString()}
                     </Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={24} color="#D4AF37" />
-                </TouchableOpacity>
-              ))}
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+        {/* Menu Sections */}
+        {menuSections.map((section, sectionIndex) => (
+          <View
+            key={sectionIndex}
+            style={{ marginBottom: isDesktop ? 32 : 24 }}
+          >
+            <Text
+              style={{
+                fontFamily: "Cinzel",
+                fontSize: isDesktop ? 24 : 20,
+                color: "#1F2937",
+                marginBottom: 16,
+                fontWeight: "600",
+              }}
+            >
+              {section.title}
+            </Text>
+            <View
+              style={{
+                flexDirection: "row",
+                flexWrap: "wrap",
+                gap: isDesktop ? 20 : isTablet ? 12 : 0,
+                justifyContent: "space-between",
+              }}
+            >
+              {section.items.map((item) => renderMenuItem(item))}
             </View>
-          ))}
-        </View>
+          </View>
+        ))}
       </ScrollView>
     </SafeAreaView>
   );

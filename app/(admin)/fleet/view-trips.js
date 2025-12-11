@@ -8,12 +8,13 @@ import {
   Modal,
   Alert,
 } from "react-native";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import Toast from "react-native-toast-message";
 import { Picker } from "@react-native-picker/picker";
+import { useFocusEffect } from "@react-navigation/native";
 import { TripService } from "../../../services";
 import apiClient from "../../../services/api/apiClient";
 import { API_CONFIG } from "../../../config/apiConfig";
@@ -39,6 +40,13 @@ export default function ViewTrips() {
     loadDriversAndShifts();
   }, []);
 
+  // Refresh data when screen comes into focus (e.g., after editing a trip)
+  useFocusEffect(
+    useCallback(() => {
+      loadTrips(true); // Force refresh when screen is focused
+    }, [])
+  );
+
   const loadDriversAndShifts = async () => {
     try {
       const [driversRes, shiftsRes] = await Promise.all([
@@ -61,9 +69,11 @@ export default function ViewTrips() {
     }
   };
 
-  const loadTrips = async () => {
+  const loadTrips = async (forceRefresh = false) => {
     try {
-      setLoading(true);
+      if (!refreshing) setLoading(true);
+
+      // Force fresh data by bypassing cache
       const response = await TripService.getAllTrips();
 
       if (response.success) {
@@ -85,7 +95,7 @@ export default function ViewTrips() {
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadTrips();
+    loadTrips(true); // Force refresh
   };
 
   const getFilteredTrips = () => {
@@ -186,7 +196,7 @@ export default function ViewTrips() {
           text2: "Trip assigned successfully",
         });
         setShowAssignModal(false);
-        loadTrips();
+        loadTrips(true); // Force refresh after assignment
       } else {
         throw new Error(response.message || "Failed to assign trip");
       }
@@ -219,7 +229,7 @@ export default function ViewTrips() {
                 text1: "Success",
                 text2: "Trip cancelled",
               });
-              loadTrips();
+              loadTrips(true); // Force refresh after cancellation
             } else {
               throw new Error(response.message);
             }
@@ -462,11 +472,19 @@ export default function ViewTrips() {
                         style={{
                           fontFamily: "Poppins",
                           fontSize: 13,
-                          color: trip.driver ? "#374151" : "#EF4444",
+                          color:
+                            (trip.drivers && trip.drivers.length > 0) ||
+                            trip.driver
+                              ? "#374151"
+                              : "#EF4444",
                           marginLeft: 6,
                         }}
                       >
-                        {trip.driver?.name || "Unassigned"}
+                        {trip.drivers && trip.drivers.length > 0
+                          ? trip.drivers
+                              .map((d) => d.name || "Unknown")
+                              .join(", ")
+                          : trip.driver?.name || "Unassigned"}
                       </Text>
                     </View>
                     <View className="flex-row items-center">

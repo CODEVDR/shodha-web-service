@@ -122,7 +122,14 @@ export default function EditTrip() {
           text1: "Success",
           text2: "Trip updated successfully",
         });
-        router.back();
+
+        // Force refresh by reloading trip data to see changes
+        await loadData();
+
+        // Navigate back after a short delay to show the success message
+        setTimeout(() => {
+          router.back();
+        }, 1000);
       } else {
         throw new Error(response.message || "Failed to update trip");
       }

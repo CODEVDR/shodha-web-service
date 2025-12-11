@@ -39,10 +39,69 @@ export default function ReportBreakdown() {
       const response = await TripService.getTripById(tripId);
       if (response.success) {
         setTrip(response.data);
+
+        // Validate breakdown report eligibility
+        const canReportBreakdown = validateBreakdownEligibility(response.data);
+        if (!canReportBreakdown.allowed) {
+          Toast.show({
+            type: "error",
+            text1: "Cannot Report Breakdown",
+            text2: canReportBreakdown.reason,
+          });
+          router.back();
+          return;
+        }
       }
     } catch (error) {
       console.error("Failed to load trip details:", error);
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: "Failed to load trip details",
+      });
+      router.back();
     }
+  };
+
+  const validateBreakdownEligibility = (tripData) => {
+    // Check if driver is assigned
+    const isDriverAssigned =
+      tripData.drivers &&
+      tripData.drivers.some(
+        (driver) =>
+          (typeof driver === "string" ? driver : driver._id) === user._id
+      );
+
+    if (!isDriverAssigned) {
+      return {
+        allowed: false,
+        reason: "You are not assigned to this trip",
+      };
+    }
+
+    // Check if truck is assigned
+    const hasTruck =
+      tripData.truck &&
+      (typeof tripData.truck === "string" ||
+        (typeof tripData.truck === "object" && tripData.truck._id));
+
+    if (!hasTruck) {
+      return {
+        allowed: false,
+        reason: "No truck assigned to this trip",
+      };
+    }
+
+    // Check trip status
+    const validStatuses = ["assigned", "in-progress", "paused"];
+    if (!validStatuses.includes(tripData.status)) {
+      return {
+        allowed: false,
+        reason: `Cannot report breakdown for ${tripData.status} trip`,
+      };
+    }
+
+    return { allowed: true };
   };
 
   const handleReportBreakdown = async () => {
@@ -96,9 +155,10 @@ export default function ReportBreakdown() {
       if (response.success) {
         // Send push notification to admin
         try {
+          const driverId = user?._id || user?.id;
           await NotificationService.notifyBreakdownReported(response.data, {
             name: user?.name || "Driver",
-            _id: user?._id,
+            _id: driverId,
           });
         } catch (notificationError) {
           console.error("Failed to send notification:", notificationError);

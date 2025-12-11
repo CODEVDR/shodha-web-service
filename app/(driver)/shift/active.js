@@ -60,14 +60,14 @@ export default function DriverActiveShift() {
     // Restore user auth if not available
     const restoreUserAuth = async () => {
       if (!user) {
-        console.log("User not available, trying to restore from token...");
+        //console.log("User not available, trying to restore from token...");
         try {
           const authData = await AuthService.restoreUserFromToken();
           if (authData) {
-            console.log("Restored user from token:", authData.user);
+            //console.log("Restored user from token:", authData.user);
             dispatch(restoreAuth(authData));
           } else {
-            console.log("No valid token found");
+            //console.log("No valid token found");
           }
         } catch (error) {
           console.error("Failed to restore user:", error);
@@ -100,11 +100,42 @@ export default function DriverActiveShift() {
 
   // Effect to reload data when user becomes available
   useEffect(() => {
-    if (user && user._id) {
-      console.log("User loaded, reloading shift and trips...");
-      loadActiveShift();
-      loadAvailableTrips();
-    }
+    const handleUserLoad = async () => {
+      if (user) {
+        // Check if user object has required ID field
+        const hasId = user._id || user.id;
+
+        if (!hasId) {
+          //console.log("User object missing ID, attempting to refresh from server...");
+          try {
+            // Try to refresh user data
+            const refreshedAuth = await AuthService.restoreUserFromToken();
+            if (
+              refreshedAuth &&
+              refreshedAuth.user &&
+              (refreshedAuth.user._id || refreshedAuth.user.id)
+            ) {
+              //console.log("Successfully refreshed user data:",refreshedAuth.user);
+              dispatch(restoreAuth(refreshedAuth));
+              return; // Exit early, the useEffect will run again with new user
+            }
+          } catch (error) {
+            console.error("Failed to refresh user data:", error);
+          }
+        }
+
+        if (hasId) {
+          //console.log("User loaded with ID, reloading shift and trips...");
+          //console.log("User object source debug:", {hasId: !!user._id,hasIdField: !!user.id,idValue: user._id || user.id,fullUser: user,});
+          loadActiveShift();
+          loadAvailableTrips();
+        } else {
+          //console.log("User object loaded but still missing ID fields afterattempt:",user);
+        }
+      }
+    };
+
+    handleUserLoad();
   }, [user]);
 
   useFocusEffect(
@@ -120,6 +151,9 @@ export default function DriverActiveShift() {
     try {
       setLoading(true);
       console.log("Loading active shift...");
+      const driverId = user?._id || user?.id;
+      console.log("Using driver ID for shift loading:", driverId);
+
       const response = await ShiftService.getActiveShift();
       console.log("Active shift response:", JSON.stringify(response, null, 2));
 
@@ -139,8 +173,8 @@ export default function DriverActiveShift() {
             activeTrip = response2.data.find((trip) => {
               const isAssignedToDriver =
                 (trip.drivers &&
-                  trip.drivers.some((d) => d._id === user._id)) ||
-                (trip.driver && trip.driver._id === user._id);
+                  trip.drivers.some((d) => d._id === driverId)) ||
+                (trip.driver && trip.driver._id === driverId);
               return (
                 isAssignedToDriver &&
                 (trip.status === "in-progress" || trip.status === "paused")
@@ -184,7 +218,7 @@ export default function DriverActiveShift() {
           startLocationTracking();
         }
       } else {
-        console.log("No active shift found, loading available trips anyway");
+        //console.log("No active shift found, loading available trips anyway");
         setShift(null);
         // Still load available trips even without an active shift
         loadAvailableTrips();
@@ -206,12 +240,12 @@ export default function DriverActiveShift() {
   const loadTruckData = async (truckId) => {
     try {
       if (!truckId) return;
-      console.log("Loading truck data for ID:", truckId);
+      //console.log("Loading truck data for ID:", truckId);
 
       const response = await TruckService.getTruckById(truckId);
       if (response.success && response.data) {
         setTruckData(response.data);
-        console.log("Truck data loaded:", response.data.registrationNumber);
+        //console.log("Truck data loaded:", response.data.registrationNumber);
       }
     } catch (error) {
       console.error("Failed to load truck data:", error);
@@ -220,29 +254,29 @@ export default function DriverActiveShift() {
 
   const loadAvailableTrips = async () => {
     try {
-      console.log("Loading available trips for driver...");
+      //console.log("Loading available trips for driver...");
       // Fetch all trips available for this driver (assigned, pending, planned)
       // Backend automatically filters by driver ID for driver role
       const response = await TripService.getDriverAvailableTrips();
-      console.log(
-        "Available trips response:",
-        JSON.stringify(response, null, 2)
-      );
+      //console.log("Available trips response:",JSON.stringify(response, null, 2));
 
       if (response.success && response.data) {
-        console.log("=== TRIP FILTERING DEBUG ===");
-        console.log("Current user object:", JSON.stringify(user, null, 2));
-        console.log("Current driver ID:", user?._id);
-        console.log("Total trips received:", response.data.length);
+        //console.log("=== TRIP FILTERING DEBUG ===");
+        //console.log("Current user object:", JSON.stringify(user, null, 2));
+        //console.log("Current driver ID (_id):", user?._id);
+        //console.log("Current driver ID (id):", user?.id);
+        //console.log("Total trips received:", response.data.length);
 
         // Check if user is available
-        if (!user || !user._id) {
-          console.log("❌ User not loaded yet - skipping trip filtering");
+        if (!user || (!user._id && !user.id)) {
+          //console.log("❌ User not loaded yet - skipping trip filtering");
           setAvailableTrips([]);
           return;
         }
 
-        console.log("✅ User loaded, proceeding with filtering...");
+        const driverId = user._id || user.id;
+        //console.log("✅ User loaded, proceeding with filtering...");
+        //console.log("Using driver ID:", driverId);
 
         // Filter trips for this driver - include in-progress trips
         const availableTripsData = response.data.filter((trip) => {
@@ -251,28 +285,14 @@ export default function DriverActiveShift() {
 
           // Check drivers array format
           if (trip.drivers && Array.isArray(trip.drivers)) {
-            isAssignedToDriver = trip.drivers.some((d) => d._id === user._id);
-            console.log(
-              `Trip ${trip._id.slice(-6)} drivers check:`,
-              trip.drivers.map((d) => d._id),
-              "vs current:",
-              user._id,
-              "match:",
-              isAssignedToDriver
-            );
+            isAssignedToDriver = trip.drivers.some((d) => d._id === driverId);
+            //console.log(`Trip ${trip._id.slice(-6)} drivers check:`,trip.drivers.map((d) => d._id),"vs current:",driverId,"match:",isAssignedToDriver);
           }
 
           // Check legacy driver format
           if (!isAssignedToDriver && trip.driver && trip.driver._id) {
-            isAssignedToDriver = trip.driver._id === user._id;
-            console.log(
-              `Trip ${trip._id.slice(-6)} legacy driver check:`,
-              trip.driver._id,
-              "vs current:",
-              user._id,
-              "match:",
-              isAssignedToDriver
-            );
+            isAssignedToDriver = trip.driver._id === driverId;
+            //console.log(`Trip ${trip._id.slice(-6)} legacy driver check:`,trip.driver._id,"vs current:",driverId,"match:",isAssignedToDriver);
           }
 
           // Include trips that are not completed/cancelled/expired
@@ -281,26 +301,15 @@ export default function DriverActiveShift() {
             trip.status !== "cancelled" &&
             trip.status !== "expired";
 
-          console.log(
-            `Trip ${trip._id.slice(-6)} final result:`,
-            "assigned:",
-            isAssignedToDriver,
-            "validStatus:",
-            isValidStatus,
-            "status:",
-            trip.status
-          );
+          //console.log(`Trip ${trip._id.slice(-6)} final result:`,"assigned:",isAssignedToDriver,"validStatus:",isValidStatus,"status:",trip.status);
 
           return isAssignedToDriver && isValidStatus;
         });
-        console.log("Filtered available trips:", availableTripsData.length);
-        console.log(
-          "Trip statuses:",
-          availableTripsData.map((t) => ({ id: t._id, status: t.status }))
-        );
+        //console.log("Filtered available trips:", availableTripsData.length);
+        //console.log("Trip statuses:",availableTripsData.map((t) => ({ id: t._id, status: t.status })));
         setAvailableTrips(availableTripsData);
       } else {
-        console.log("No trips in response or request failed");
+        //console.log("No trips in response or request failed");
         setAvailableTrips([]);
       }
     } catch (error) {
@@ -310,9 +319,9 @@ export default function DriverActiveShift() {
   const startTrip = async (tripId) => {
     try {
       setLoading(true);
-      console.log("Starting trip with ID:", tripId);
+      //console.log("Starting trip with ID:", tripId);
       const response = await TripService.startTrip(tripId);
-      console.log("Start trip response:", JSON.stringify(response, null, 2));
+      //console.log("Start trip response:", JSON.stringify(response, null, 2));
 
       if (response.success) {
         const tripData = response.data;
@@ -322,10 +331,7 @@ export default function DriverActiveShift() {
 
         // Extract and set navigation data if available
         if (tripData.route) {
-          console.log("Setting up navigation with route data:", {
-            pathPoints: tripData.route.path?.length || 0,
-            instructions: tripData.route.instructions?.length || 0,
-          });
+          //console.log("Setting up navigation with route data:", {pathPoints: tripData.route.path?.length || 0,instructions: tripData.route.instructions?.length || 0,});
 
           setPlannedRoute(tripData.route.path || []);
           setNavigationInstructions(tripData.route.instructions || []);
@@ -362,7 +368,7 @@ export default function DriverActiveShift() {
   const updateTripStatus = async (tripId, newStatus) => {
     try {
       setLoading(true);
-      console.log("Updating trip status:", tripId, newStatus);
+      //console.log("Updating trip status:", tripId, newStatus);
 
       let response;
       if (newStatus === "paused") {
@@ -375,7 +381,7 @@ export default function DriverActiveShift() {
         throw new Error("Invalid trip status");
       }
 
-      console.log("Update trip status response:", response);
+      //console.log("Update trip status response:", response);
 
       if (response.success) {
         // Update the active trip status locally
@@ -763,6 +769,7 @@ export default function DriverActiveShift() {
 
   const reportBreakdown = async (breakdownType) => {
     try {
+      const driverId = user?._id || user?.id;
       if (!currentLocation || !truckData?._id) {
         Toast.show({
           type: "error",
@@ -780,7 +787,7 @@ export default function DriverActiveShift() {
           coordinates: [currentLocation.longitude, currentLocation.latitude],
           address: "Driver location",
         },
-        reportedBy: user._id,
+        reportedBy: driverId,
         breakdownType: breakdownType.id,
         description: `${breakdownType.title} reported from driver app`,
         severity: breakdownType.severity,
@@ -879,7 +886,7 @@ export default function DriverActiveShift() {
   };
 
   const updateMapWithRoute = (routePoints) => {
-    console.log("Updating map with route points:", routePoints.length);
+    //console.log("Updating map with route points:", routePoints.length);
     const jsCode = `
       if (window.updatePlannedRoute) {
         window.updatePlannedRoute(${JSON.stringify(routePoints)});
@@ -916,173 +923,403 @@ export default function DriverActiveShift() {
     return `<!doctype html>
 <html>
 <head>
+  <meta charset="utf-8">
   <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>3D Map Tracker</title>
+  <link href="https://unpkg.com/maplibre-gl@5.13.0/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/maplibre-gl@5.13.0/dist/maplibre-gl.js"></script>
   <style>
-    body, html { margin:0; padding:0; height:100%; }
+    body, html { margin:0; padding:0; height:100%; overflow:hidden; }
     #map { position:absolute; top:0; bottom:0; width:100%; }
-    .marker-current { background-color:#4CAF50; border-radius:50%; width:20px; height:20px; border: 3px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
-    .marker-start { background-color:#D4AF37; border-radius:50%; width:16px; height:16px; border: 2px solid #fff; }
+    
+    .marker-current {
+      width: 24px;
+      height: 24px;
+      background-color: #4CAF50;
+      border: 4px solid #fff;
+      border-radius: 50%;
+      box-shadow: 0 3px 6px rgba(0,0,0,0.4);
+      cursor: pointer;
+      position: relative;
+    }
+    
+    .marker-current::after {
+      content: '';
+      position: absolute;
+      width: 0;
+      height: 0;
+      border-left: 6px solid transparent;
+      border-right: 6px solid transparent;
+      border-bottom: 16px solid #fff;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
+    }
+    
+    .marker-start {
+      width: 20px;
+      height: 20px;
+      background-color: #D4AF37;
+      border: 3px solid #fff;
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    
     .company-overlay {
       position: absolute;
       top: 10px;
       right: 10px;
-      background: rgba(255,255,255,0.9);
+      background: rgba(255,255,255,0.95);
       padding: 8px 12px;
       border-radius: 6px;
-      font-size: 12px;
-      font-weight: bold;
+      font-size: 11px;
+      font-weight: 600;
       color: #333;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
       z-index: 1000;
+      backdrop-filter: blur(4px);
+    }
+    
+    .compass-toggle {
+      position: absolute;
+      bottom: 120px;
+      right: 10px;
+      background: rgba(255,255,255,0.95);
+      padding: 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      z-index: 1000;
+      font-size: 20px;
+      user-select: none;
+      transition: transform 0.2s;
+    }
+    
+    .compass-toggle:active {
+      transform: scale(0.95);
+    }
+    
+    .compass-toggle.active {
+      background: rgba(76, 175, 80, 0.95);
+      color: white;
     }
   </style>
-  <link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet" />
 </head>
 <body>
   <div id="map"></div>
   <div class="company-overlay">© KanProkagno Innovation Private Limited</div>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <div class="compass-toggle" id="compassToggle" title="Toggle Compass Mode">🧭</div>
+  
   <script>
-    // Initialize OpenStreetMap
-    const map = L.map('map').setView([${startLat}, ${startLon}], 13);
-    
-    // Add OpenStreetMap tiles
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors',
-      maxZoom: 19
-    }).addTo(map);
+    // Initialize MapLibre GL JS map with 3D terrain
+    const map = new maplibregl.Map({
+      container: 'map',
+      center: [${startLon}, ${startLat}],
+      zoom: 14,
+      pitch: ${MAP_CONFIG.defaultPitch || 60}, // 3D tilt angle
+      bearing: 0,
+      maxPitch: 85,
+      style: {
+        version: 8,
+        sources: {
+          osm: {
+            type: 'raster',
+            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+            tileSize: 256,
+            attribution: '© OpenStreetMap contributors',
+            maxzoom: 19
+          },
+          terrainSource: {
+            type: 'raster-dem',
+            url: 'https://demotiles.maplibre.org/terrain-tiles/tiles.json',
+            tileSize: 256
+          },
+          hillshadeSource: {
+            type: 'raster-dem',
+            url: 'https://demotiles.maplibre.org/terrain-tiles/tiles.json',
+            tileSize: 256
+          }
+        },
+        layers: [
+          {
+            id: 'osm',
+            type: 'raster',
+            source: 'osm'
+          },
+          {
+            id: 'hills',
+            type: 'hillshade',
+            source: 'hillshadeSource',
+            layout: { visibility: 'visible' },
+            paint: {
+              'hillshade-shadow-color': '#473B24',
+              'hillshade-exaggeration': 0.8
+            }
+          }
+        ],
+        terrain: {
+          source: 'terrainSource',
+          exaggeration: ${MAP_CONFIG.mapStyle?.terrain?.exaggeration || 1.5}
+        }
+      }
+    });
 
+    // Add navigation controls with compass
+    map.addControl(
+      new maplibregl.NavigationControl({
+        visualizePitch: true,
+        showZoom: true,
+        showCompass: true
+      }),
+      'top-left'
+    );
+
+    // Add terrain control
+    map.addControl(
+      new maplibregl.TerrainControl({
+        source: 'terrainSource',
+        exaggeration: ${MAP_CONFIG.mapStyle?.terrain?.exaggeration || 1.5}
+      }),
+      'top-left'
+    );
+
+    // Variables
     let currentMarker = null;
+    let startMarker = null;
     let plannedRouteLayer = null;
     let actualRouteLayer = null;
-    
+    let compassEnabled = false;
+    let lastPosition = null;
+    let currentBearing = 0;
+
     // Add start location marker
-    const startIcon = L.divIcon({
-      className: 'marker-start',
-      iconSize: [16, 16]
+    map.on('load', () => {
+      const startEl = document.createElement('div');
+      startEl.className = 'marker-start';
+      
+      startMarker = new maplibregl.Marker({ element: startEl })
+        .setLngLat([${startLon}, ${startLat}])
+        .addTo(map);
+
+      // Signal that map is loaded
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage('MAP_LOADED');
+      }
     });
-    L.marker([${startLat}, ${startLon}], { icon: startIcon }).addTo(map);
-    
-    // Signal that map is loaded
-    if (window.ReactNativeWebView) {
-      window.ReactNativeWebView.postMessage('MAP_LOADED');
-    }
-    
+
+    // Update planned route (blue)
     window.updatePlannedRoute = function(route) {
       if (!route || route.length === 0) return;
       
       // Remove existing planned route
-      if (plannedRouteLayer) {
-        map.removeLayer(plannedRouteLayer);
+      if (map.getLayer('planned-route')) {
+        map.removeLayer('planned-route');
+      }
+      if (map.getSource('planned-route')) {
+        map.removeSource('planned-route');
       }
       
-      // Convert to Leaflet format [lat, lon]
-      const coordinates = route.map(point => [point.latitude, point.longitude]);
+      // Convert to GeoJSON LineString format [lon, lat]
+      const coordinates = route.map(point => [point.longitude, point.latitude]);
       
-      // Add planned route (blue)
-      plannedRouteLayer = L.polyline(coordinates, {
-        color: '#2196F3',
-        weight: 5,
-        opacity: 0.6
-      }).addTo(map);
+      map.addSource('planned-route', {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: coordinates
+          }
+        }
+      });
+      
+      map.addLayer({
+        id: 'planned-route',
+        type: 'line',
+        source: 'planned-route',
+        layout: {
+          'line-join': 'round',
+          'line-cap': 'round'
+        },
+        paint: {
+          'line-color': '#2196F3',
+          'line-width': 5,
+          'line-opacity': 0.6
+        }
+      });
       
       // Fit bounds to show full route
       if (coordinates.length > 0) {
-        map.fitBounds(coordinates, { padding: [20, 20] });
+        const bounds = coordinates.reduce((bounds, coord) => {
+          return bounds.extend(coord);
+        }, new maplibregl.LngLatBounds(coordinates[0], coordinates[0]));
+        
+        map.fitBounds(bounds, { padding: 50, duration: 1000 });
       }
     };
 
+    // Update actual route (gold)
     window.updateRoute = function(route) {
       if (!route || route.length === 0) return;
       
       // Remove existing actual route
-      if (actualRouteLayer) {
-        map.removeLayer(actualRouteLayer);
+      if (map.getLayer('actual-route')) {
+        map.removeLayer('actual-route');
+      }
+      if (map.getSource('actual-route')) {
+        map.removeSource('actual-route');
       }
       
-      // Convert to Leaflet format [lat, lon]
-      const coordinates = route.map(point => [point.latitude, point.longitude]);
+      // Convert to GeoJSON LineString format [lon, lat]
+      const coordinates = route.map(point => [point.longitude, point.latitude]);
       
-      // Add actual route (gold)
-      actualRouteLayer = L.polyline(coordinates, {
-        color: '#D4AF37',
-        weight: 4,
-        opacity: 1
-      }).addTo(map);
+      map.addSource('actual-route', {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: coordinates
+          }
+        }
+      });
+      
+      map.addLayer({
+        id: 'actual-route',
+        type: 'line',
+        source: 'actual-route',
+        layout: {
+          'line-join': 'round',
+          'line-cap': 'round'
+        },
+        paint: {
+          'line-color': '#D4AF37',
+          'line-width': 4,
+          'line-opacity': 1
+        }
+      });
     };
 
-    let lastPosition = null;
-    let currentBearing = 0;
-    let compassEnabled = true;
-
+    // Update current location with bearing
     window.updateCurrentLocation = function(lat, lon, bearing) {
-      const newPosition = [lat, lon];
+      const newPosition = [lon, lat]; // MapLibre uses [lon, lat]
       
-      if (currentMarker) {
-        currentMarker.setLatLng(newPosition);
-      } else {
-        const currentIcon = L.divIcon({
-          className: 'marker-current',
-          iconSize: [20, 20],
-          html: '<div style="width:20px;height:20px;background:#4CAF50;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.3);"><div style="width:0;height:0;border-left:3px solid transparent;border-right:3px solid transparent;border-bottom:8px solid #fff;position:absolute;top:1px;left:7px;transform-origin:50% 100%;transition:transform 0.3s ease;" id="direction-arrow"></div></div>'
-        });
-        currentMarker = L.marker(newPosition, { icon: currentIcon }).addTo(map);
-      }
-      
-      // Calculate bearing if we have previous position
-      if (lastPosition && bearing !== undefined) {
-        currentBearing = bearing;
-      } else if (lastPosition) {
-        const lat1 = lastPosition[0] * Math.PI / 180;
+      // Calculate bearing if not provided
+      if (lastPosition && bearing === undefined) {
+        const lat1 = lastPosition[1] * Math.PI / 180;
         const lat2 = lat * Math.PI / 180;
-        const deltaLon = (lon - lastPosition[1]) * Math.PI / 180;
+        const deltaLon = (lon - lastPosition[0]) * Math.PI / 180;
         
         const y = Math.sin(deltaLon) * Math.cos(lat2);
         const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLon);
         
         currentBearing = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+      } else if (bearing !== undefined) {
+        currentBearing = bearing;
       }
       
-      // Rotate the direction arrow on the marker based on bearing
-      if (currentBearing !== 0 && compassEnabled) {
-        const arrow = document.getElementById('direction-arrow');
-        if (arrow) {
-          arrow.style.transform = 'rotate(' + currentBearing + 'deg)';
-        }
+      // Create or update current location marker
+      if (currentMarker) {
+        currentMarker.setLngLat(newPosition);
+        currentMarker.setRotation(currentBearing);
+      } else {
+        const currentEl = document.createElement('div');
+        currentEl.className = 'marker-current';
         
-        // Smooth map rotation following the movement direction
-        const mapContainer = map.getContainer();
-        if (mapContainer) {
-          mapContainer.style.transform = 'rotate(' + (-currentBearing) + 'deg)';
-          mapContainer.style.transformOrigin = '50% 50%';
-          mapContainer.style.transition = 'transform 0.5s ease';
-        }
+        currentMarker = new maplibregl.Marker({
+          element: currentEl,
+          rotationAlignment: 'map',
+          pitchAlignment: 'map'
+        })
+          .setLngLat(newPosition)
+          .setRotation(currentBearing)
+          .addTo(map);
+      }
+      
+      // Update map view
+      if (compassEnabled && currentBearing !== 0) {
+        // Smooth compass mode: center on position with bearing rotation
+        map.easeTo({
+          center: newPosition,
+          bearing: currentBearing,
+          duration: 500,
+          easing: (t) => t
+        });
+      } else {
+        // Simple pan without rotation
+        map.easeTo({
+          center: newPosition,
+          duration: 500
+        });
       }
       
       lastPosition = newPosition;
-      map.panTo(newPosition);
     };
 
-    // Function to toggle compass mode
+    // Toggle compass mode
+    const compassToggle = document.getElementById('compassToggle');
+    compassToggle.addEventListener('click', () => {
+      compassEnabled = !compassEnabled;
+      compassToggle.classList.toggle('active', compassEnabled);
+      
+      if (!compassEnabled) {
+        // Reset bearing to north
+        map.easeTo({
+          bearing: 0,
+          duration: 500
+        });
+      }
+      
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'COMPASS_TOGGLED',
+          enabled: compassEnabled
+        }));
+      }
+    });
+
     window.toggleCompass = function() {
       compassEnabled = !compassEnabled;
-      const mapContainer = map.getContainer();
-      if (!compassEnabled && mapContainer) {
-        mapContainer.style.transform = 'none';
-        mapContainer.style.transition = 'transform 0.5s ease';
+      compassToggle.classList.toggle('active', compassEnabled);
+      
+      if (!compassEnabled) {
+        map.easeTo({
+          bearing: 0,
+          duration: 500
+        });
       }
+      
       return compassEnabled;
     };
 
-    // Function to reset map orientation
+    // Reset map orientation
     window.resetMapOrientation = function() {
-      const mapContainer = map.getContainer();
-      if (mapContainer) {
-        mapContainer.style.transform = 'none';
-        mapContainer.style.transition = 'transform 0.5s ease';
-      }
-      currentBearing = 0;
       compassEnabled = false;
+      compassToggle.classList.remove('active');
+      currentBearing = 0;
+      
+      map.easeTo({
+        bearing: 0,
+        pitch: ${MAP_CONFIG.defaultPitch || 60},
+        duration: 500
+      });
+    };
+
+    // Set map pitch (3D tilt)
+    window.setMapPitch = function(pitch) {
+      map.easeTo({
+        pitch: pitch,
+        duration: 500
+      });
+    };
+
+    // Set terrain exaggeration
+    window.setTerrainExaggeration = function(exaggeration) {
+      map.setTerrain({
+        source: 'terrainSource',
+        exaggeration: exaggeration
+      });
     };
   </script>
 </body>

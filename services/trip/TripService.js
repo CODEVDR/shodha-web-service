@@ -8,7 +8,10 @@ class TripService {
    */
   async getAllTrips(status) {
     try {
-      let params = {};
+      let params = {
+        // Add cache-busting timestamp
+        _t: Date.now(),
+      };
       if (status) {
         // Support array of statuses joined by comma
         params.status = Array.isArray(status) ? status.join(",") : status;
@@ -28,7 +31,10 @@ class TripService {
     try {
       // Get trips that are assigned or pending
       return await apiClient.get(API_CONFIG.endpoints.trips.getAll, {
-        params: { status: "assigned,pending,planned,in-progress" },
+        params: {
+          status: "assigned,pending,planned,in-progress",
+          _t: Date.now(), // Cache-busting
+        },
       });
     } catch (error) {
       throw error;
@@ -40,7 +46,9 @@ class TripService {
    */
   async getTripById(id) {
     try {
-      return await apiClient.get(API_CONFIG.endpoints.trips.getById(id));
+      return await apiClient.get(API_CONFIG.endpoints.trips.getById(id), {
+        params: { _t: Date.now() }, // Cache-busting
+      });
     } catch (error) {
       throw error;
     }

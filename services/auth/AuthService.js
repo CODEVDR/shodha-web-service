@@ -46,11 +46,7 @@ class AuthService {
         await AsyncStorage.setItem(STORAGE_KEYS.USER_ROLE, user.role);
 
         return {
-          user: {
-            username: user.username,
-            name: user.name,
-            email: user.email,
-          },
+          user,
           role: user.role,
           token,
         };
@@ -240,10 +236,47 @@ class AuthService {
       const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
       if (!token) return null;
 
+      // Decode token first to get user ID
+      const decodedToken = this.decodeToken(token);
+
       // First try to get stored user data
       const userDataString = await AsyncStorage.getItem(STORAGE_KEYS.USER_DATA);
       if (userDataString) {
-        const userData = JSON.parse(userDataString);
+        let userData = JSON.parse(userDataString);
+        console.log(
+          "AuthService.restoreUserFromToken - stored user data:",
+          userData
+        );
+
+        // If stored user data is missing _id, try to refresh from server
+        if (!userData._id) {
+          console.log(
+            "Stored user data missing _id, attempting to refresh from server..."
+          );
+          try {
+            const refreshedUser = await this.refreshUserData();
+            if (refreshedUser) {
+              console.log("Successfully refreshed user data from server");
+              return {
+                user: refreshedUser,
+                role: refreshedUser.role,
+                token,
+              };
+            }
+          } catch (error) {
+            console.log("Could not refresh user data, using token data");
+          }
+
+          // Fallback: add _id from token if available
+          if (decodedToken?.id) {
+            userData._id = decodedToken.id;
+            await AsyncStorage.setItem(
+              STORAGE_KEYS.USER_DATA,
+              JSON.stringify(userData)
+            );
+          }
+        }
+
         return {
           user: userData,
           role: userData.role,
@@ -252,7 +285,6 @@ class AuthService {
       }
 
       // If no stored user data, decode from token and fetch from server
-      const decodedToken = this.decodeToken(token);
       if (decodedToken && decodedToken.id) {
         try {
           // Try to refresh user data from server

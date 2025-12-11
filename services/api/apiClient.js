@@ -10,7 +10,7 @@ const apiClient = axios.create({
   headers: API_CONFIG.headers,
 });
 
-// Request interceptor to add auth token
+// Request interceptor to add auth token and cache-busting
 apiClient.interceptors.request.use(
   async (config) => {
     try {
@@ -20,6 +20,17 @@ apiClient.interceptors.request.use(
         config.headers.Authorization = `Bearer ${token}`;
       } else {
         console.warn("apiClient interceptor - No token found in AsyncStorage");
+      }
+
+      // Add cache-busting headers for all requests
+      config.headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
+      config.headers["Pragma"] = "no-cache";
+      config.headers["If-None-Match"] = "no-match-for-this";
+
+      // Add timestamp to prevent caching
+      if (config.method === "get") {
+        const separator = config.url.includes("?") ? "&" : "?";
+        config.url = `${config.url}${separator}_t=${Date.now()}`;
       }
     } catch (error) {
       console.error("apiClient interceptor - Error reading token:", error);
