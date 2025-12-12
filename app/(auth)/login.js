@@ -366,102 +366,102 @@ export default function LoginScreen() {
                   </Text>
                 </TouchableOpacity>
 
-                {/* Demo Credentials */}
-                <View
-                  style={{
-                    marginTop: 40,
-                    paddingTop: 32,
-                    borderTopWidth: 1,
-                    borderTopColor: "#E5E7EB",
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontFamily: "Poppins",
-                      fontSize: 13,
-                      color: "#6B7280",
-                      textAlign: "center",
-                      marginBottom: 16,
-                      fontWeight: "500",
-                    }}
-                  >
-                    Demo Credentials
-                  </Text>
-                  <View
-                    style={{
-                      flexDirection: isDesktop || isTablet ? "row" : "column",
-                      justifyContent: "space-around",
-                      gap: 12,
-                    }}
-                  >
-                    <TouchableOpacity
-                      style={{
-                        flex: isDesktop || isTablet ? 1 : undefined,
-                        backgroundColor: "white",
-                        borderWidth: 2,
-                        borderColor: "#D4AF37",
-                        borderRadius: 12,
-                        padding: 16,
-                        alignItems: "center",
-                      }}
-                      onPress={fillAdminCredentials}
-                    >
-                      <Text
-                        style={{
-                          fontFamily: "Poppins",
-                          fontSize: 15,
-                          color: "#D4AF37",
-                          fontWeight: "600",
-                        }}
-                      >
-                        Admin
-                      </Text>
-                      <Text
-                        style={{
-                          fontFamily: "Poppins",
-                          fontSize: 12,
-                          color: "#6B7280",
-                          marginTop: 4,
-                        }}
-                      >
-                        admin / admin123
-                      </Text>
-                    </TouchableOpacity>
+                // {/* Demo Credentials */}
+                // <View
+                //   style={{
+                //     marginTop: 40,
+                //     paddingTop: 32,
+                //     borderTopWidth: 1,
+                //     borderTopColor: "#E5E7EB",
+                //   }}
+                // >
+                //   <Text
+                //     style={{
+                //       fontFamily: "Poppins",
+                //       fontSize: 13,
+                //       color: "#6B7280",
+                //       textAlign: "center",
+                //       marginBottom: 16,
+                //       fontWeight: "500",
+                //     }}
+                //   >
+                //     Demo Credentials
+                //   </Text>
+                //   <View
+                //     style={{
+                //       flexDirection: isDesktop || isTablet ? "row" : "column",
+                //       justifyContent: "space-around",
+                //       gap: 12,
+                //     }}
+                //   >
+                //     <TouchableOpacity
+                //       style={{
+                //         flex: isDesktop || isTablet ? 1 : undefined,
+                //         backgroundColor: "white",
+                //         borderWidth: 2,
+                //         borderColor: "#D4AF37",
+                //         borderRadius: 12,
+                //         padding: 16,
+                //         alignItems: "center",
+                //       }}
+                //       onPress={fillAdminCredentials}
+                //     >
+                //       <Text
+                //         style={{
+                //           fontFamily: "Poppins",
+                //           fontSize: 15,
+                //           color: "#D4AF37",
+                //           fontWeight: "600",
+                //         }}
+                //       >
+                //         Admin
+                //       </Text>
+                //       <Text
+                //         style={{
+                //           fontFamily: "Poppins",
+                //           fontSize: 12,
+                //           color: "#6B7280",
+                //           marginTop: 4,
+                //         }}
+                //       >
+                //         admin / admin123
+                //       </Text>
+                //     </TouchableOpacity>
 
-                    <TouchableOpacity
-                      style={{
-                        flex: isDesktop || isTablet ? 1 : undefined,
-                        backgroundColor: "white",
-                        borderWidth: 2,
-                        borderColor: "#D4AF37",
-                        borderRadius: 12,
-                        padding: 16,
-                        alignItems: "center",
-                      }}
-                      onPress={fillDriverCredentials}
-                    >
-                      <Text
-                        style={{
-                          fontFamily: "Poppins",
-                          fontSize: 15,
-                          color: "#D4AF37",
-                          fontWeight: "600",
-                        }}
-                      >
-                        Driver
-                      </Text>
-                      <Text
-                        style={{
-                          fontFamily: "Poppins",
-                          fontSize: 12,
-                          color: "#6B7280",
-                          marginTop: 4,
-                        }}
-                      >
-                        driver1 / driver123
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
+                //     <TouchableOpacity
+                //       style={{
+                //         flex: isDesktop || isTablet ? 1 : undefined,
+                //         backgroundColor: "white",
+                //         borderWidth: 2,
+                //         borderColor: "#D4AF37",
+                //         borderRadius: 12,
+                //         padding: 16,
+                //         alignItems: "center",
+                //       }}
+                //       onPress={fillDriverCredentials}
+                //     >
+                //       <Text
+                //         style={{
+                //           fontFamily: "Poppins",
+                //           fontSize: 15,
+                //           color: "#D4AF37",
+                //           fontWeight: "600",
+                //         }}
+                //       >
+                //         Driver
+                //       </Text>
+                //       <Text
+                //         style={{
+                //           fontFamily: "Poppins",
+                //           fontSize: 12,
+                //           color: "#6B7280",
+                //           marginTop: 4,
+                //         }}
+                //       >
+                //         driver1 / driver123
+                //       </Text>
+                //     </TouchableOpacity>
+                //   </View>
                 </View>
               </View>
             </View>
