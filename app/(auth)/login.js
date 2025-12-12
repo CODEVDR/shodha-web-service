@@ -462,7 +462,7 @@ export default function LoginScreen() {
                 //       </Text>
                 //     </TouchableOpacity>
                 //   </View>
-                </View>
+                // </View>
               </View>
             </View>
           </View>
