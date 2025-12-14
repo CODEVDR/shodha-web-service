@@ -10,9 +10,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
 import Toast from "react-native-toast-message";
+import { useLanguage } from "../_layout";
 
 export default function EndTrip() {
   const router = useRouter();
+  const { LANG } = useLanguage();
   const [notes, setNotes] = useState("");
   const [finalReading, setFinalReading] = useState("");
 
@@ -20,8 +22,8 @@ export default function EndTrip() {
     if (!finalReading.trim()) {
       Toast.show({
         type: "error",
-        text1: "Required Field",
-        text2: "Please enter final odometer reading",
+        text1: LANG.tripEnd.requiredField,
+        text2: LANG.tripEnd.requiresFinalReading,
         position: "top",
       });
       return;
@@ -29,8 +31,8 @@ export default function EndTrip() {
 
     Toast.show({
       type: "success",
-      text1: "Trip Ended",
-      text2: "Trip has been completed successfully",
+      text1: LANG.trip.messages.completed,
+      text2: LANG.trip.messages.completedDesc,
       position: "top",
     });
 
@@ -48,13 +50,13 @@ export default function EndTrip() {
               className="text-2xl text-gray-800 mb-2"
               style={{ fontFamily: "Cinzel" }}
             >
-              End Trip
+              {LANG.tripEnd.title}
             </Text>
             <Text
               className="text-gray-600 mb-6"
               style={{ fontFamily: "Poppins" }}
             >
-              Please provide trip completion details
+              {LANG.tripEnd.subtitle}
             </Text>
 
             {/* Final Reading */}
@@ -63,14 +65,14 @@ export default function EndTrip() {
                 className="text-sm text-gray-700 mb-2"
                 style={{ fontFamily: "Poppins" }}
               >
-                Final Odometer Reading (km)
+                {LANG.tripEnd.finalReading}
               </Text>
               <View className="flex-row items-center border border-gray-300 rounded-lg px-4 py-3 bg-gray-50">
                 <Ionicons name="speedometer-outline" size={20} color="#666" />
                 <TextInput
                   className="flex-1 ml-3 text-base text-gray-800"
                   style={{ fontFamily: "Poppins" }}
-                  placeholder="Enter final reading"
+                  placeholder={LANG.tripEnd.finalReadingPlaceholder}
                   value={finalReading}
                   onChangeText={setFinalReading}
                   keyboardType="numeric"
@@ -84,13 +86,13 @@ export default function EndTrip() {
                 className="text-sm text-gray-700 mb-2"
                 style={{ fontFamily: "Poppins" }}
               >
-                Notes (Optional)
+                {LANG.tripEnd.notesOptional}
               </Text>
               <View className="border border-gray-300 rounded-lg px-4 py-3 bg-gray-50">
                 <TextInput
                   className="text-base text-gray-800 min-h-[100px]"
                   style={{ fontFamily: "Poppins", textAlignVertical: "top" }}
-                  placeholder="Any additional notes..."
+                  placeholder={LANG.tripEnd.notesPlaceholder}
                   value={notes}
                   onChangeText={setNotes}
                   multiline
@@ -106,12 +108,12 @@ export default function EndTrip() {
               className="text-white text-xl mb-4"
               style={{ fontFamily: "Cinzel" }}
             >
-              Trip Summary
+              {LANG.tripEnd.summary}
             </Text>
             <View className="space-y-2">
               <View className="flex-row justify-between py-2">
                 <Text className="text-white" style={{ fontFamily: "Poppins" }}>
-                  Duration
+                  {LANG.tripEnd.duration}
                 </Text>
                 <Text
                   className="text-white font-semibold"
@@ -122,7 +124,7 @@ export default function EndTrip() {
               </View>
               <View className="flex-row justify-between py-2">
                 <Text className="text-white" style={{ fontFamily: "Poppins" }}>
-                  Distance
+                  {LANG.tripEnd.distance}
                 </Text>
                 <Text
                   className="text-white font-semibold"
@@ -144,7 +146,7 @@ export default function EndTrip() {
                 className="text-white text-lg font-semibold"
                 style={{ fontFamily: "Poppins" }}
               >
-                Complete Trip
+                {LANG.tripEnd.complete}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -155,7 +157,7 @@ export default function EndTrip() {
                 className="text-gray-700 text-lg font-semibold"
                 style={{ fontFamily: "Poppins" }}
               >
-                Cancel
+                {LANG.cancel}
               </Text>
             </TouchableOpacity>
           </View>

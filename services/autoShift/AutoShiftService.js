@@ -24,10 +24,15 @@ const AutoShiftService = {
     try {
       return await apiClient.post("/auto-shifts/activate");
     } catch (error) {
-      console.error("Activate shift error:", error);
+      // If the server returned a structured error (e.g. { success: false, message: ... }),
+      // return that payload so callers can handle business errors properly.
+      console.error("Activate shift error:", error.response?.data ?? error);
+      if (error.response && error.response.data) {
+        return error.response.data;
+      }
       return {
         success: false,
-        message: error.response?.data?.message || "Failed to activate shift",
+        message: error.message || "Failed to activate shift",
       };
     }
   },
@@ -51,6 +56,25 @@ const AutoShiftService = {
   },
 
   /**
+   * Initialize automatic shift assignments for all drivers
+   * @param {string} date - Optional date in YYYY-MM-DD format (defaults to today)
+   */
+  async initializeShiftAssignments(date = null) {
+    try {
+      const payload = date ? { date } : {};
+      return await apiClient.post("/auto-shifts/initialize", payload);
+    } catch (error) {
+      console.error("Initialize shift assignments error:", error);
+      return {
+        success: false,
+        message:
+          error.response?.data?.message ||
+          "Failed to initialize shift assignments",
+      };
+    }
+  },
+
+  /**
    * Get available trucks for assignment
    */
   async getAvailableTrucks() {
@@ -68,16 +92,58 @@ const AutoShiftService = {
 
   /**
    * Get all active shift assignments (admin only)
+   * @param {string} date - Optional date filter in YYYY-MM-DD format
    */
-  async getActiveAssignments() {
+  async getActiveAssignments(date = null) {
     try {
-      return await apiClient.get("/auto-shifts/active-assignments");
+      const params = date ? { date } : {};
+      return await apiClient.get("/auto-shifts/active-assignments", { params });
     } catch (error) {
       console.error("Get active assignments error:", error);
       return {
         success: false,
         message:
           error.response?.data?.message || "Failed to fetch active assignments",
+      };
+    }
+  },
+
+  /**
+   * Get shifts by date range
+   * @param {string} startDate - Start date in YYYY-MM-DD format
+   * @param {string} endDate - End date in YYYY-MM-DD format
+   */
+  async getShiftsByDateRange(startDate, endDate) {
+    try {
+      return await apiClient.get("/auto-shifts/shifts-by-date-range", {
+        params: { startDate, endDate },
+      });
+    } catch (error) {
+      console.error("Get shifts by date range error:", error);
+      return {
+        success: false,
+        message:
+          error.response?.data?.message ||
+          "Failed to fetch shifts by date range",
+      };
+    }
+  },
+
+  /**
+   * Get shifts for a specific date
+   * @param {string} date - Date in YYYY-MM-DD format
+   */
+  async getShiftsByDate(date) {
+    try {
+      return await apiClient.get("/auto-shifts/shifts-by-date", {
+        params: { date },
+      });
+    } catch (error) {
+      console.error("Get shifts by date error:", error);
+      return {
+        success: false,
+        message:
+          error.response?.data?.message || "Failed to fetch shifts by date",
       };
     }
   },
@@ -109,6 +175,49 @@ const AutoShiftService = {
         success: false,
         message:
           error.response?.data?.message || "Failed to fetch active shift",
+      };
+    }
+  },
+
+  /**
+   * Get shift statistics for a date or date range
+   * @param {Object} params - Query parameters
+   * @param {string} params.date - Single date in YYYY-MM-DD format
+   * @param {string} params.startDate - Start date for range query
+   * @param {string} params.endDate - End date for range query
+   */
+  async getShiftStatistics(params = {}) {
+    try {
+      return await apiClient.get("/auto-shifts/statistics", { params });
+    } catch (error) {
+      console.error("Get shift statistics error:", error);
+      return {
+        success: false,
+        message:
+          error.response?.data?.message || "Failed to fetch shift statistics",
+      };
+    }
+  },
+
+  /**
+   * Reassign driver to different shift for a specific date
+   * @param {string} driverId - Driver ID
+   * @param {string} shiftType - Shift type (morning, afternoon, night)
+   * @param {string} date - Date in YYYY-MM-DD format
+   */
+  async reassignDriverShift(driverId, shiftType, date) {
+    try {
+      return await apiClient.post("/auto-shifts/reassign", {
+        driverId,
+        shiftType,
+        date,
+      });
+    } catch (error) {
+      console.error("Reassign driver shift error:", error);
+      return {
+        success: false,
+        message:
+          error.response?.data?.message || "Failed to reassign driver shift",
       };
     }
   },

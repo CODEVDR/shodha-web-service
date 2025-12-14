@@ -14,6 +14,7 @@ import { useSelector } from "react-redux";
 import { useState, useEffect, useRef } from "react";
 import Toast from "react-native-toast-message";
 import { AutoShiftService, NotificationService } from "../../services";
+import { useLanguage } from "./_layout";
 
 export default function DriverDashboard() {
   const router = useRouter();
@@ -25,9 +26,14 @@ export default function DriverDashboard() {
   const [istTime, setIstTime] = useState(null);
   const [myActiveShift, setMyActiveShift] = useState(null);
   const [shiftSchedules, setShiftSchedules] = useState([]);
+  const [activeTripsCount, setActiveTripsCount] = useState(0);
+
+  // Get language from context
+  const { LANG } = useLanguage();
 
   const notificationListener = useRef();
   const responseListener = useRef();
+  const timeUpdateInterval = useRef(null);
 
   // Responsive breakpoints
   const isDesktop = width >= 1024;
@@ -38,12 +44,105 @@ export default function DriverDashboard() {
     loadData();
     initializeNotifications();
 
+    // Update current shift every minute
+    timeUpdateInterval.current = setInterval(() => {
+      updateCurrentShiftInRealTime();
+    }, 60000); // Check every minute
+
     return () => {
       if (notificationListener.current) {
         NotificationService.removeAllListeners();
       }
+      if (timeUpdateInterval.current) {
+        clearInterval(timeUpdateInterval.current);
+      }
     };
   }, []);
+
+  // Calculate current shift based on IST time
+  const getCurrentShiftFromTime = () => {
+    const now = new Date();
+    const istString = now.toLocaleString("en-US", {
+      timeZone: "Asia/Kolkata",
+    });
+    const istDate = new Date(istString);
+    const hours = istDate.getHours();
+    const minutes = istDate.getMinutes();
+    const currentTimeInMinutes = hours * 60 + minutes;
+
+    const shifts = [
+      {
+        type: "morning",
+        name: "Morning Shift",
+        startHour: 2,
+        startMinute: 0,
+        endHour: 10,
+        endMinute: 0,
+        color: "#FFA500",
+      },
+      {
+        type: "afternoon",
+        name: "Afternoon Shift",
+        startHour: 10,
+        startMinute: 0,
+        endHour: 18,
+        endMinute: 0,
+        color: "#4CAF50",
+      },
+      {
+        type: "night",
+        name: "Night Shift",
+        startHour: 18,
+        startMinute: 0,
+        endHour: 2,
+        endMinute: 0,
+        color: "#2196F3",
+      },
+    ];
+
+    for (const shift of shifts) {
+      const startTimeInMinutes = shift.startHour * 60 + shift.startMinute;
+      let endTimeInMinutes = shift.endHour * 60 + shift.endMinute;
+
+      // Handle overnight shifts (like night shift 18:00 - 02:00)
+      if (endTimeInMinutes <= startTimeInMinutes) {
+        endTimeInMinutes += 24 * 60;
+      }
+
+      // Check if current time falls within this shift
+      if (currentTimeInMinutes >= startTimeInMinutes) {
+        if (currentTimeInMinutes < endTimeInMinutes) {
+          return shift;
+        }
+      } else if (endTimeInMinutes > 24 * 60) {
+        // Handle overnight case (after midnight)
+        if (currentTimeInMinutes < endTimeInMinutes - 24 * 60) {
+          return shift;
+        }
+      }
+    }
+
+    return null;
+  };
+
+  // Update current shift in real-time
+  const updateCurrentShiftInRealTime = () => {
+    const shift = getCurrentShiftFromTime();
+    const now = new Date();
+    const istString = now.toLocaleString("en-US", {
+      timeZone: "Asia/Kolkata",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+
+    console.log("🕐 Real-time update - Current IST:", istString);
+    console.log("🔄 Current shift:", shift ? shift.name : "No active shift");
+
+    setCurrentShift(shift);
+    setIstTime(istString);
+  };
 
   const initializeNotifications = async () => {
     const hasPermission = await NotificationService.requestPermissions();
@@ -73,24 +172,243 @@ export default function DriverDashboard() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [schedulesRes, myShiftRes] = await Promise.all([
-        AutoShiftService.getShiftSchedules(),
-        AutoShiftService.getMyShift(),
-      ]);
 
-      if (schedulesRes.success) {
-        setShiftSchedules(schedulesRes.data.schedules || []);
-        setCurrentShift(schedulesRes.data.current);
-        setIstTime(schedulesRes.data.istTime);
-      }
+      // Get real-time current shift & IST now
+      const realTimeShift = getCurrentShiftFromTime();
+      const now = new Date();
+      const istString = now.toLocaleString("en-US", {
+        timeZone: "Asia/Kolkata",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      });
+
+      setCurrentShift(realTimeShift);
+      setIstTime(istString);
+
+      console.log("🕐 Current IST Time:", istString);
+
+      // Get current user ID
+      const currentUserId = user?._id || user?.id;
+      console.log("👤 Current User ID:", currentUserId);
+
+      // Fetch my active shift from API
+      const myShiftRes = await AutoShiftService.getMyShift();
+      console.log(
+        "📦 My Shift API Response:",
+        JSON.stringify(myShiftRes, null, 2)
+      );
 
       if (myShiftRes.success && myShiftRes.data) {
-        setMyActiveShift(myShiftRes.data);
+        const shiftData = myShiftRes.data;
+
+        console.log("📦 Received shift data from API:", {
+          id: shiftData._id,
+          driver: shiftData.driver,
+          status: shiftData.status,
+          shiftType: shiftData.shiftType,
+          shiftDate: shiftData.shiftDate,
+          manualAssignment: shiftData.manualAssignment,
+        });
+
+        // ✅ CHECK 0: Verify this shift belongs to current user
+        const shiftDriverId =
+          typeof shiftData.driver === "string"
+            ? shiftData.driver
+            : shiftData.driver?._id || shiftData.driver;
+
+        if (shiftDriverId !== currentUserId) {
+          console.log(
+            `❌ Shift belongs to different driver (${shiftDriverId}) - hiding`
+          );
+          setMyActiveShift(null);
+          setActiveTripsCount(0);
+          return;
+        }
+
+        // ✅ CHECK 1: Status must be "active"
+        if (shiftData.status !== "active") {
+          console.log(`❌ Shift status is "${shiftData.status}" - hiding`);
+          setMyActiveShift(null);
+          setActiveTripsCount(0);
+          return;
+        }
+
+        // ✅ CHECK 2: Use startTimeIST and endTimeIST objects
+        try {
+          // Get current IST date and time properly
+          const istFormatter = new Intl.DateTimeFormat("en-US", {
+            timeZone: "Asia/Kolkata",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          });
+
+          const istParts = istFormatter.formatToParts(now);
+          const istObj = {};
+          istParts.forEach((part) => {
+            istObj[part.type] = part.value;
+          });
+
+          const currentYear = parseInt(istObj.year);
+          const currentMonth = parseInt(istObj.month);
+          const currentDay = parseInt(istObj.day);
+          const currentHour = parseInt(istObj.hour);
+          const currentMinute = parseInt(istObj.minute);
+
+          const todayDateStr = `${currentYear}-${String(currentMonth).padStart(2, "0")}-${String(currentDay).padStart(2, "0")}`;
+          const currentTotalMinutes = currentHour * 60 + currentMinute;
+
+          console.log("📅 Current IST Date:", todayDateStr);
+          console.log(
+            "🕐 Current IST Time:",
+            `${currentHour}:${String(currentMinute).padStart(2, "0")}`
+          );
+          console.log("🕐 Current Total Minutes:", currentTotalMinutes);
+
+          // Extract shift times from IST objects
+          const startHour = shiftData.startTimeIST?.hour;
+          const startMinute = shiftData.startTimeIST?.minute || 0;
+          const startDate = shiftData.startTimeIST?.date || shiftData.shiftDate;
+
+          const endHour = shiftData.endTimeIST?.hour;
+          const endMinute = shiftData.endTimeIST?.minute || 0;
+          const endDate = shiftData.endTimeIST?.date;
+
+          if (startHour == null || endHour == null) {
+            console.error("❌ Missing IST time data");
+            setMyActiveShift(null);
+            setActiveTripsCount(0);
+            return;
+          }
+
+          const startTotalMinutes = startHour * 60 + startMinute;
+          let endTotalMinutes = endHour * 60 + endMinute;
+
+          console.log("⏰ Shift Time Analysis:", {
+            shiftType: shiftData.shiftType,
+            startDate,
+            endDate: endDate || startDate,
+            startTime: `${startHour}:${String(startMinute).padStart(2, "0")}`,
+            endTime: `${endHour}:${String(endMinute).padStart(2, "0")}`,
+            startTotalMinutes,
+            endTotalMinutes,
+          });
+
+          let isWithinShiftWindow = false;
+
+          // Determine if shift crosses midnight
+          const shiftCrossesMidnight =
+            (endDate && endDate !== startDate) ||
+            endTotalMinutes <= startTotalMinutes;
+
+          if (shiftCrossesMidnight) {
+            console.log("🌙 Overnight shift detected");
+
+            // Calculate next day
+            const startDateObj = new Date(startDate + "T00:00:00");
+            startDateObj.setDate(startDateObj.getDate() + 1);
+            const nextDayStr = `${startDateObj.getFullYear()}-${String(startDateObj.getMonth() + 1).padStart(2, "0")}-${String(startDateObj.getDate()).padStart(2, "0")}`;
+
+            if (todayDateStr === startDate) {
+              // We're on the start date - check if time >= start
+              isWithinShiftWindow = currentTotalMinutes >= startTotalMinutes;
+              console.log(
+                `📍 On start date (${startDate}), time check: ${currentTotalMinutes} >= ${startTotalMinutes} = ${isWithinShiftWindow}`
+              );
+            } else if (
+              todayDateStr === nextDayStr ||
+              todayDateStr === endDate
+            ) {
+              // We're on the next day - check if time < end
+              isWithinShiftWindow = currentTotalMinutes < endTotalMinutes;
+              console.log(
+                `📍 On next date (${todayDateStr}), time check: ${currentTotalMinutes} < ${endTotalMinutes} = ${isWithinShiftWindow}`
+              );
+            } else {
+              console.log(
+                `📍 Date mismatch: today=${todayDateStr}, start=${startDate}, next=${nextDayStr}`
+              );
+            }
+          } else {
+            // Same-day shift
+            isWithinShiftWindow =
+              todayDateStr === startDate &&
+              currentTotalMinutes >= startTotalMinutes &&
+              currentTotalMinutes < endTotalMinutes;
+
+            console.log(`📍 Same-day shift on ${startDate}:`);
+            console.log(`  - Date match: ${todayDateStr === startDate}`);
+            console.log(
+              `  - Time range: ${currentTotalMinutes} >= ${startTotalMinutes} && ${currentTotalMinutes} < ${endTotalMinutes}`
+            );
+            console.log(`  - Result: ${isWithinShiftWindow}`);
+          }
+
+          console.log("⏱ Final Window Check:", {
+            shiftType: shiftData.shiftType,
+            isWithinWindow: isWithinShiftWindow,
+          });
+
+          if (!isWithinShiftWindow) {
+            console.log(`❌ Current time not within shift window - hiding`);
+            setMyActiveShift(null);
+            setActiveTripsCount(0);
+            return;
+          }
+
+          console.log(
+            `✅ VALID: Shift is within time window (${shiftData.shiftType})`
+          );
+        } catch (dateError) {
+          console.error("❌ Error processing shift times:", dateError);
+          setMyActiveShift(null);
+          setActiveTripsCount(0);
+          return;
+        }
+
+        console.log("✅ All checks passed - processing shift...");
+
+        // Filter active trips
+        const activeTrips =
+          shiftData.trips?.filter((trip) => {
+            return (
+              trip.status !== "completed" &&
+              trip.status !== "cancelled" &&
+              trip.status !== "failed"
+            );
+          }) || [];
+
+        console.log(`✅ Found ${activeTrips.length} active trips`);
+
+        const updatedShiftData = {
+          ...shiftData,
+          activeTrips: activeTrips,
+          totalActiveTrips: activeTrips.length,
+        };
+
+        setMyActiveShift(updatedShiftData);
+        setActiveTripsCount(activeTrips.length);
+
+        console.log("✅ Active shift set successfully:", {
+          shiftId: updatedShiftData._id,
+          shiftType: updatedShiftData.shiftType,
+          driver: shiftDriverId,
+          manualAssignment: updatedShiftData.manualAssignment,
+        });
       } else {
+        console.log("ℹ️ No shift data returned from API");
         setMyActiveShift(null);
+        setActiveTripsCount(0);
       }
     } catch (error) {
-      console.log("Error loading shift data:", error);
+      console.error("❌ Error loading shift data:", error);
+      setMyActiveShift(null);
+      setActiveTripsCount(0);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -109,22 +427,22 @@ export default function DriverDashboard() {
 
       if (response.success) {
         await NotificationService.notifyShiftActivated(
-          user?.name || "Driver",
+          user?.name || LANG.driver,
           response.data?.truck?.registrationNumber || "N/A"
         );
 
         Toast.show({
           type: "success",
-          text1: "Success",
-          text2: `Shift activated! ${response.data?.truck?.registrationNumber ? `Truck ${response.data.truck.registrationNumber} assigned` : "Shift activated successfully"}`,
+          text1: LANG.success,
+          text2: `${LANG.shiftActivated} ${response.data?.truck?.registrationNumber ? `${LANG.truckAssigned} ${response.data.truck.registrationNumber}` : LANG.shiftActivatedSuccess}`,
         });
         loadData();
       } else {
         console.log("Shift activation failed:", response.message);
         Toast.show({
           type: "error",
-          text1: "Cannot Activate Shift",
-          text2: response.message || "Failed to activate shift",
+          text1: LANG.cannotActivateShift,
+          text2: response.message || LANG.shiftActivationFailed,
           visibilityTime: 4000,
         });
       }
@@ -133,10 +451,10 @@ export default function DriverDashboard() {
       const errorMessage =
         error?.message ||
         error?.response?.data?.message ||
-        "Failed to activate shift";
+        LANG.shiftActivationFailed;
       Toast.show({
         type: "error",
-        text1: "Error",
+        text1: LANG.error,
         text2: errorMessage,
         visibilityTime: 4000,
       });
@@ -148,6 +466,17 @@ export default function DriverDashboard() {
   const handleEndShift = async () => {
     if (!myActiveShift) return;
 
+    // Check if there are active trips
+    if (activeTripsCount > 0) {
+      Toast.show({
+        type: "error",
+        text1: LANG.error,
+        text2: `${LANG.error}. ${LANG.messages?.requiredField || "You have"} ${activeTripsCount} ${LANG.shiftInfo.trips}. ${LANG.tripEnd?.requiresFinalReading || "Please complete all trips first"}.`,
+        visibilityTime: 4000,
+      });
+      return;
+    }
+
     try {
       setLoading(true);
       const response = await AutoShiftService.releaseShift(myActiveShift._id);
@@ -155,23 +484,24 @@ export default function DriverDashboard() {
       if (response.success) {
         Toast.show({
           type: "success",
-          text1: "Success",
-          text2: "Shift ended successfully",
+          text1: LANG.success,
+          text2: LANG.shiftEndedSuccess,
         });
         setMyActiveShift(null);
+        setActiveTripsCount(0);
         loadData();
       } else {
         Toast.show({
           type: "error",
-          text1: "Error",
-          text2: response.message || "Failed to end shift",
+          text1: LANG.error,
+          text2: response.message || LANG.shiftEndFailed,
         });
       }
     } catch (error) {
       Toast.show({
         type: "error",
-        text1: "Error",
-        text2: error.message || "Failed to end shift",
+        text1: LANG.error,
+        text2: error.message || LANG.shiftEndFailed,
       });
     } finally {
       setLoading(false);
@@ -185,25 +515,25 @@ export default function DriverDashboard() {
 
   const menuItems = [
     {
-      title: "Active Shift",
+      title: LANG.quickAccess.activeShift,
       icon: "time-outline",
       route: "/(driver)/shift/active",
       color: "#4CAF50",
-      description: "View current shift details",
+      description: LANG.quickAccess.activeShiftDesc,
     },
     {
-      title: "Trip List",
+      title: LANG.quickAccess.tripList,
       icon: "list-outline",
       route: "/(driver)/shift/trips",
       color: "#2196F3",
-      description: "Manage your trips",
+      description: LANG.quickAccess.tripListDesc,
     },
     {
-      title: "Shift History",
+      title: LANG.quickAccess.shiftHistory,
       icon: "calendar-outline",
       route: "/(driver)/shift/history",
       color: "#FF9800",
-      description: "View past shifts",
+      description: LANG.quickAccess.shiftHistoryDesc,
     },
   ];
 
@@ -235,7 +565,7 @@ export default function DriverDashboard() {
               marginBottom: 8,
             }}
           >
-            Driver Dashboard
+            {LANG.dashboard.title}
           </Text>
           <View
             style={{
@@ -269,7 +599,7 @@ export default function DriverDashboard() {
                   color: "#6B7280",
                 }}
               >
-                Welcome back,
+                {LANG.dashboard.welcomeBack}
               </Text>
               <Text
                 style={{
@@ -279,7 +609,7 @@ export default function DriverDashboard() {
                   fontWeight: "600",
                 }}
               >
-                {user?.name || "Driver"}
+                {user?.name || LANG.driver}
               </Text>
             </View>
           </View>
@@ -344,7 +674,7 @@ export default function DriverDashboard() {
                       fontWeight: "600",
                     }}
                   >
-                    Shift Status
+                    {LANG.shiftInfo.status}
                   </Text>
                   {istTime && (
                     <Text
@@ -355,14 +685,14 @@ export default function DriverDashboard() {
                         marginTop: 4,
                       }}
                     >
-                      Current Time: {istTime}
+                      {LANG.shiftInfo.currentTime} {istTime} IST
                     </Text>
                   )}
                 </View>
               </View>
 
               {/* Current Shift Schedule */}
-              {currentShift && (
+              {currentShift ? (
                 <View
                   style={{
                     backgroundColor: "#10B98115",
@@ -397,7 +727,8 @@ export default function DriverDashboard() {
                         color: "#10B981",
                       }}
                     >
-                      {currentShift.name} - ACTIVE
+                      {currentShift.name} -{" "}
+                      {LANG.status?.active?.toUpperCase() || "ACTIVE"}
                     </Text>
                   </View>
                   <Text
@@ -413,6 +744,44 @@ export default function DriverDashboard() {
                     {currentShift.endHour}:
                     {String(currentShift.endMinute).padStart(2, "0")} IST
                   </Text>
+                </View>
+              ) : (
+                <View
+                  style={{
+                    backgroundColor: "#EF444415",
+                    borderLeftWidth: 4,
+                    borderLeftColor: "#EF4444",
+                    borderRadius: 12,
+                    padding: 16,
+                    marginBottom: 20,
+                  }}
+                >
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 12,
+                        height: 12,
+                        borderRadius: 6,
+                        backgroundColor: "#EF4444",
+                        marginRight: 10,
+                      }}
+                    />
+                    <Text
+                      style={{
+                        fontFamily: "Poppins",
+                        fontSize: isDesktop ? 18 : 16,
+                        fontWeight: "700",
+                        color: "#EF4444",
+                      }}
+                    >
+                      {LANG.shiftInfo.noActiveSchedule}
+                    </Text>
+                  </View>
                 </View>
               )}
 
@@ -436,7 +805,7 @@ export default function DriverDashboard() {
                         marginBottom: 16,
                       }}
                     >
-                      Your Active Shift
+                      {LANG.shiftInfo.yourActiveShift}
                     </Text>
 
                     <View
@@ -467,7 +836,7 @@ export default function DriverDashboard() {
                             color: "#6B7280",
                           }}
                         >
-                          Truck Assigned
+                          {LANG.shiftInfo.assignedTruck}
                         </Text>
                         <Text
                           style={{
@@ -510,7 +879,7 @@ export default function DriverDashboard() {
                             color: "#6B7280",
                           }}
                         >
-                          Started At
+                          {LANG.shiftInfo.startedAt}
                         </Text>
                         <Text
                           style={{
@@ -520,14 +889,20 @@ export default function DriverDashboard() {
                             fontWeight: "600",
                           }}
                         >
-                          {new Date(
-                            myActiveShift.startTime
-                          ).toLocaleTimeString()}
+                          {new Date(myActiveShift.startTime).toLocaleTimeString(
+                            "en-US",
+                            {
+                              timeZone: "Asia/Kolkata",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            }
+                          )}
                         </Text>
                       </View>
                     </View>
 
-                    {myActiveShift.trips && myActiveShift.trips.length > 0 && (
+                    {/* Only show active trips count */}
+                    {activeTripsCount > 0 && (
                       <View
                         style={{
                           flexDirection: "row",
@@ -555,7 +930,7 @@ export default function DriverDashboard() {
                               color: "#6B7280",
                             }}
                           >
-                            Assigned Trips
+                            {LANG.shiftInfo.assignedTrips}
                           </Text>
                           <Text
                             style={{
@@ -565,7 +940,8 @@ export default function DriverDashboard() {
                               fontWeight: "600",
                             }}
                           >
-                            {myActiveShift.trips.length} trip(s)
+                            {activeTripsCount} {LANG.status?.active || "Active"}{" "}
+                            {LANG.shiftInfo.trips}
                           </Text>
                         </View>
                       </View>
@@ -600,33 +976,49 @@ export default function DriverDashboard() {
                         marginLeft: 8,
                       }}
                     >
-                      View Route & Track
+                      {LANG.buttons.viewRoute}
                     </Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     onPress={handleEndShift}
                     style={{
-                      backgroundColor: "#EF4444",
+                      backgroundColor:
+                        activeTripsCount > 0 ? "#D1D5DB" : "#EF4444",
                       borderRadius: 14,
                       paddingVertical: 16,
                       alignItems: "center",
                     }}
-                    disabled={loading}
+                    disabled={loading || activeTripsCount > 0}
                   >
                     {loading ? (
                       <ActivityIndicator color="#fff" />
                     ) : (
-                      <Text
-                        style={{
-                          fontFamily: "Poppins",
-                          fontSize: 16,
-                          color: "white",
-                          fontWeight: "600",
-                        }}
-                      >
-                        End Shift
-                      </Text>
+                      <View style={{ alignItems: "center" }}>
+                        <Text
+                          style={{
+                            fontFamily: "Poppins",
+                            fontSize: 16,
+                            color: "white",
+                            fontWeight: "600",
+                          }}
+                        >
+                          {LANG.buttons.endShift}
+                        </Text>
+                        {activeTripsCount > 0 && (
+                          <Text
+                            style={{
+                              fontFamily: "Poppins",
+                              fontSize: 11,
+                              color: "white",
+                              marginTop: 2,
+                            }}
+                          >
+                            {LANG.trip?.messages?.completedDesc ||
+                              "Complete all trips first"}
+                          </Text>
+                        )}
+                      </View>
                     )}
                   </TouchableOpacity>
                 </View>
@@ -659,7 +1051,7 @@ export default function DriverDashboard() {
                         textAlign: "center",
                       }}
                     >
-                      No active shift
+                      {LANG.shiftInfo.noActiveShift}
                     </Text>
                     <Text
                       style={{
@@ -670,7 +1062,7 @@ export default function DriverDashboard() {
                         marginTop: 4,
                       }}
                     >
-                      Activate your shift to start working
+                      {LANG.shiftInfo.activateToStart}
                     </Text>
                   </View>
 
@@ -701,8 +1093,8 @@ export default function DriverDashboard() {
                         }}
                       >
                         {currentShift
-                          ? "Activate Shift"
-                          : "No Active Shift Period"}
+                          ? LANG.buttons.activateShift
+                          : LANG.shiftInfo.noActiveSchedule}
                       </Text>
                     )}
                   </TouchableOpacity>
@@ -737,7 +1129,7 @@ export default function DriverDashboard() {
                       fontWeight: "600",
                     }}
                   >
-                    Important
+                    {LANG.important}
                   </Text>
                 </View>
                 <Text
@@ -748,8 +1140,7 @@ export default function DriverDashboard() {
                     lineHeight: 22,
                   }}
                 >
-                  Remember to start your shift before beginning any trip. Keep
-                  your GPS enabled for accurate tracking.
+                  {LANG.infoMessage}
                 </Text>
               </View>
             )}
@@ -772,8 +1163,9 @@ export default function DriverDashboard() {
                   fontWeight: "600",
                 }}
               >
-                Quick Access
+                {LANG.quickAccess.title}
               </Text>
+
               {menuItems.map((item, index) => (
                 <TouchableOpacity
                   key={index}
@@ -874,7 +1266,7 @@ export default function DriverDashboard() {
                       fontWeight: "600",
                     }}
                   >
-                    Important
+                    {LANG.important}
                   </Text>
                 </View>
                 <Text
@@ -885,8 +1277,7 @@ export default function DriverDashboard() {
                     lineHeight: 22,
                   }}
                 >
-                  Remember to start your shift before beginning any trip. Keep
-                  your GPS enabled for accurate tracking.
+                  {LANG.infoMessage}
                 </Text>
               </View>
             )}

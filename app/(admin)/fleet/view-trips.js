@@ -58,7 +58,7 @@ export default function ViewTrips() {
         setDrivers(driversRes.data || []);
       }
       if (shiftsRes.success) {
-        // Filter to only active shifts
+        // Filter to only ACTIVE shifts
         const activeShifts = (shiftsRes.data || []).filter(
           (s) => s.status === "active"
         );
@@ -98,8 +98,75 @@ export default function ViewTrips() {
     loadTrips(true); // Force refresh
   };
 
+  // ✅ GRAPHOPPER FIX: Converts milliseconds to readable format
+  // Also provides a Haversine-based distance + duration calculator
+  const getFormattedDuration = (durationMs) => {
+    if (!durationMs || isNaN(durationMs) || durationMs <= 0) return "N/A";
+
+    // durationMs expected in MILLISECONDS
+    const totalSeconds = Math.floor(durationMs / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    } else if (minutes > 0) {
+      return `${minutes} hour`;
+    } else if (seconds > 0) {
+      return `${seconds} min`;
+    } else {
+      return `< 1 min`;
+    }
+  };
+
+  // Haversine distance + estimated duration calculator
+  // Returns { distanceKm, durationMs }
+  // avgSpeedKmph defaults to 60 km/h (adjust as needed)
+  const calculateDistance = (startLocation, endLocation, avgSpeedKmph = 60) => {
+    if (
+      !startLocation ||
+      !endLocation ||
+      typeof startLocation.latitude === "undefined" ||
+      typeof startLocation.longitude === "undefined" ||
+      typeof endLocation.latitude === "undefined" ||
+      typeof endLocation.longitude === "undefined"
+    ) {
+      return { distanceKm: 0, durationMs: 0 };
+    }
+
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const R = 6371; // Earth radius in km
+
+    const dLat = toRad(endLocation.latitude - startLocation.latitude);
+    const dLon = toRad(endLocation.longitude - startLocation.longitude);
+
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(startLocation.latitude)) *
+        Math.cos(toRad(endLocation.latitude)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distanceKm = R * c;
+
+    // Estimate duration based on avgSpeedKmph -> convert hours to ms
+    const durationHours = distanceKm / avgSpeedKmph;
+    const durationMs = Math.ceil(durationHours * 3600 * 1000);
+
+    return { distanceKm: Number(distanceKm.toFixed(2)), durationMs };
+  };
+
   const getFilteredTrips = () => {
     if (filterStatus === "all") return trips;
+    if (filterStatus === "expired") {
+      return trips.filter((trip) => {
+        if (!trip.expiresAt) return false;
+        const expiresAt = new Date(trip.expiresAt);
+        return expiresAt < new Date();
+      });
+    }
     return trips.filter((trip) => trip.status === filterStatus);
   };
 
@@ -172,6 +239,7 @@ export default function ViewTrips() {
     setShowAssignModal(true);
   };
 
+  // ✅ DRIVER SHIFT VALIDATION: Only active shifts belonging to driver
   const handleAssignTrip = async () => {
     if (!selectedDriver) {
       Toast.show({
@@ -182,18 +250,61 @@ export default function ViewTrips() {
       return;
     }
 
+    if (!selectedShift) {
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: "Please select a shift before assigning the trip",
+      });
+      return;
+    }
+
+    // VALIDATION 1: Shift exists and belongs to driver
+    const selectedShiftObj = shifts.find((s) => s._id === selectedShift);
+    if (!selectedShiftObj) {
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: "Invalid shift selected",
+      });
+      return;
+    }
+
+    const driverId = selectedDriver;
+    const shiftDriverId =
+      selectedShiftObj.driver?._id || selectedShiftObj.driver;
+
+    if (shiftDriverId !== driverId) {
+      Toast.show({
+        type: "error",
+        text1: "Validation Error",
+        text2: "Selected shift does not belong to this driver",
+      });
+      return;
+    }
+
+    // VALIDATION 2: Shift must be ACTIVE
+    if (selectedShiftObj.status !== "active") {
+      Toast.show({
+        type: "error",
+        text1: "Shift Error",
+        text2: `Shift status: ${selectedShiftObj.status}. Only ACTIVE shifts allowed`,
+      });
+      return;
+    }
+
     try {
       setAssigning(true);
       const response = await TripService.assignTrip(selectedTrip._id, {
         driverId: selectedDriver,
-        shiftId: selectedShift || undefined,
+        shiftId: selectedShift,
       });
 
       if (response.success) {
         Toast.show({
           type: "success",
           text1: "Success",
-          text2: "Trip assigned successfully",
+          text2: "Trip assigned successfully to driver with active shift",
         });
         setShowAssignModal(false);
         loadTrips(true); // Force refresh after assignment
@@ -552,7 +663,7 @@ export default function ViewTrips() {
                     </View>
                   </View>
 
-                  {/* Distance & Duration */}
+                  {/* ✅ FIXED: GraphHopper Duration (ms → readable) */}
                   <View className="flex-row items-center justify-between mt-3 pt-3 border-t border-gray-200">
                     <View className="flex-row items-center">
                       <Ionicons
@@ -581,7 +692,7 @@ export default function ViewTrips() {
                           marginLeft: 4,
                         }}
                       >
-                        {trip.estimatedDuration || "N/A"} min
+                        {getFormattedDuration(trip.estimatedDuration)}
                       </Text>
                     </View>
                     <TouchableOpacity
@@ -754,7 +865,7 @@ export default function ViewTrips() {
               </View>
             </View>
 
-            {/* Shift Selection (Optional) */}
+            {/* ✅ Shift Selection - Auto-filters by selected driver's ACTIVE shifts */}
             <View className="mb-6">
               <Text
                 style={{
@@ -765,7 +876,7 @@ export default function ViewTrips() {
                   marginBottom: 8,
                 }}
               >
-                Select Shift (Optional)
+                Select Active Shift *
               </Text>
               <View className="bg-gray-100 rounded-xl">
                 <Picker
@@ -773,18 +884,28 @@ export default function ViewTrips() {
                   onValueChange={(value) => setSelectedShift(value)}
                   style={{ height: 50 }}
                 >
-                  <Picker.Item label="-- No Shift --" value="" />
+                  <Picker.Item
+                    label={
+                      selectedDriver
+                        ? "No active shifts"
+                        : "-- Select Driver First --"
+                    }
+                    value=""
+                  />
                   {shifts
-                    .filter(
-                      (s) =>
-                        !selectedDriver ||
-                        s.driver?._id === selectedDriver ||
-                        s.driver === selectedDriver
-                    )
+                    .filter((s) => {
+                      // Only show shifts for SELECTED driver that are ACTIVE
+                      return (
+                        selectedDriver &&
+                        (s.driver?._id === selectedDriver ||
+                          s.driver === selectedDriver) &&
+                        s.status === "active"
+                      );
+                    })
                     .map((shift) => (
                       <Picker.Item
                         key={shift._id}
-                        label={`${shift.type || "Shift"} - ${shift.driver?.name || "Unknown"}`}
+                        label={`${shift.type || "Shift"} - ${shift.driver?.name || "Driver"} (${shift.startTime?.slice(0, 5)} - ${shift.endTime?.slice(0, 5)})`}
                         value={shift._id}
                       />
                     ))}
@@ -795,9 +916,10 @@ export default function ViewTrips() {
             {/* Assign Button */}
             <TouchableOpacity
               onPress={handleAssignTrip}
-              disabled={assigning || !selectedDriver}
+              disabled={assigning || !selectedDriver || !selectedShift}
               style={{
-                backgroundColor: selectedDriver ? "#D4AF37" : "#D1D5DB",
+                backgroundColor:
+                  selectedDriver && selectedShift ? "#D4AF37" : "#D1D5DB",
                 paddingVertical: 16,
                 borderRadius: 12,
                 flexDirection: "row",

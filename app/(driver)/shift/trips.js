@@ -1,8 +1,10 @@
 import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useLanguage } from "../_layout";
 
 export default function TripsList() {
+  const { LANG } = useLanguage();
   const trips = [
     { id: 1, destination: "Mumbai", status: "In Progress", distance: "450 km" },
     { id: 2, destination: "Pune", status: "Pending", distance: "250 km" },
@@ -28,7 +30,7 @@ export default function TripsList() {
             className="text-2xl text-gray-800 mb-6"
             style={{ fontFamily: "Cinzel" }}
           >
-            Today's Trips
+            {LANG.trip.tripList}
           </Text>
 
           {trips.length === 0 ? (
@@ -38,7 +40,7 @@ export default function TripsList() {
                 className="text-gray-600 text-lg mt-4 text-center"
                 style={{ fontFamily: "Poppins" }}
               >
-                No trips scheduled for today
+                {LANG.trip.noTripsScheduled}
               </Text>
             </View>
           ) : (
@@ -59,7 +61,7 @@ export default function TripsList() {
                       className="text-base text-gray-600"
                       style={{ fontFamily: "Poppins" }}
                     >
-                      Destination: {trip.destination}
+                      {LANG.trip.destination}: {trip.destination}
                     </Text>
                   </View>
                   <View

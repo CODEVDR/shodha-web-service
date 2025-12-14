@@ -17,11 +17,13 @@ import {
   NotificationService,
 } from "../../../services";
 import { useSelector } from "react-redux";
+import { useLanguage } from "../_layout";
 
 export default function ReportBreakdown() {
   const router = useRouter();
   const { tripId } = useLocalSearchParams();
   const { user } = useSelector((state) => state.auth);
+  const { LANG } = useLanguage();
   const [description, setDescription] = useState("");
   const [breakdownType, setBreakdownType] = useState("");
   const [location, setLocation] = useState("");
@@ -45,7 +47,7 @@ export default function ReportBreakdown() {
         if (!canReportBreakdown.allowed) {
           Toast.show({
             type: "error",
-            text1: "Cannot Report Breakdown",
+            text1: LANG.breakdown.messages.cannotReport,
             text2: canReportBreakdown.reason,
           });
           router.back();
@@ -56,8 +58,8 @@ export default function ReportBreakdown() {
       console.error("Failed to load trip details:", error);
       Toast.show({
         type: "error",
-        text1: "Error",
-        text2: "Failed to load trip details",
+        text1: LANG.error,
+        text2: LANG.breakdown.messages.detailsNotLoaded,
       });
       router.back();
     }
@@ -75,7 +77,7 @@ export default function ReportBreakdown() {
     if (!isDriverAssigned) {
       return {
         allowed: false,
-        reason: "You are not assigned to this trip",
+        reason: LANG.breakdown.messages.notAssigned,
       };
     }
 
@@ -88,7 +90,7 @@ export default function ReportBreakdown() {
     if (!hasTruck) {
       return {
         allowed: false,
-        reason: "No truck assigned to this trip",
+        reason: LANG.breakdown.messages.noTruck,
       };
     }
 
@@ -97,7 +99,7 @@ export default function ReportBreakdown() {
     if (!validStatuses.includes(tripData.status)) {
       return {
         allowed: false,
-        reason: `Cannot report breakdown for ${tripData.status} trip`,
+        reason: LANG.breakdown.messages.invalidStatus,
       };
     }
 

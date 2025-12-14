@@ -1,5 +1,12 @@
 import { Stack } from "expo-router";
-import { TouchableOpacity, Text, View, Animated, Platform } from "react-native";
+import {
+  TouchableOpacity,
+  Text,
+  View,
+  Animated,
+  Platform,
+  Modal,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { useDispatch, useSelector } from "react-redux";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,7 +14,40 @@ import Toast from "react-native-toast-message";
 import { logout } from "../../store/slices/authSlice";
 import { AuthService } from "../../services";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { useRef, useState, useEffect } from "react";
+import React, {
+  useRef,
+  useState,
+  useEffect,
+  createContext,
+  useContext,
+} from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  DRIVER_ENGLISH,
+  DRIVER_HINDI,
+  DRIVER_TELUGU,
+  DRIVER_TAMIL,
+} from "../../utils/driverLanguageConstants";
+
+// Language constants mapping
+const LANGUAGES = {
+  english: DRIVER_ENGLISH,
+  hindi: DRIVER_HINDI,
+  telugu: DRIVER_TELUGU,
+  tamil: DRIVER_TAMIL,
+};
+
+// Create Language Context
+const LanguageContext = createContext();
+
+// Hook to use language context
+export const useLanguage = () => {
+  const context = useContext(LanguageContext);
+  if (!context) {
+    throw new Error("useLanguage must be used within LanguageProvider");
+  }
+  return context;
+};
 
 // Animated Status Indicator Component
 const StatusIndicator = ({ status = "active" }) => {
@@ -32,10 +72,29 @@ const StatusIndicator = ({ status = "active" }) => {
     }
   }, [status]);
 
+  const { LANG } = useLanguage();
+
+  const activeLabel =
+    (LANG && (LANG.status?.active || LANG.status?.onDuty)) ||
+    (LANG && (LANG.shift?.active || LANG.shift?.onDuty)) ||
+    LANG?.driver ||
+    "Active";
+
+  const inactiveLabel =
+    (LANG && (LANG.status?.inactive || LANG.status?.offDuty)) ||
+    (LANG && (LANG.shift?.noActiveShift || LANG.shift?.offDuty)) ||
+    LANG?.driver ||
+    "Off Duty";
+
+  const breakLabel =
+    (LANG && (LANG.status?.onBreak || LANG.status?.break)) ||
+    (LANG && LANG.shift?.onBreak) ||
+    "On Break";
+
   const statusConfig = {
-    active: { color: "#10B981", label: "On Duty" },
-    inactive: { color: "#6B7280", label: "Off Duty" },
-    break: { color: "#F59E0B", label: "On Break" },
+    active: { color: "#10B981", label: activeLabel },
+    inactive: { color: "#6B7280", label: inactiveLabel },
+    break: { color: "#F59E0B", label: breakLabel },
   };
 
   const config = statusConfig[status] || statusConfig.inactive;
@@ -216,9 +275,42 @@ export default function DriverLayout() {
   const router = useRouter();
   const dispatch = useDispatch();
   const [driverStatus, setDriverStatus] = useState("active");
+  const [selectedLanguage, setSelectedLanguage] = useState("english");
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
 
-  // You can get driver status from Redux store if available
-  // const driverStatus = useSelector((state) => state.driver?.status);
+  // Load saved language preference
+  useEffect(() => {
+    loadSavedLanguage();
+  }, []);
+
+  const loadSavedLanguage = async () => {
+    try {
+      const savedLang = await AsyncStorage.getItem("driverLanguage");
+      if (savedLang && LANGUAGES[savedLang]) {
+        setSelectedLanguage(savedLang);
+      }
+    } catch (error) {
+      console.error("Failed to load language:", error);
+    }
+  };
+
+  const changeLanguage = async (lang) => {
+    try {
+      setSelectedLanguage(lang);
+      await AsyncStorage.setItem("driverLanguage", lang);
+      setShowLanguageModal(false);
+      Toast.show({
+        type: "success",
+        text1: LANGUAGES[lang].language.title,
+        text2: `${LANGUAGES[lang].language.select}: ${LANGUAGES[lang].language[lang]}`,
+        position: "top",
+      });
+    } catch (error) {
+      console.error("Failed to save language:", error);
+    }
+  };
+
+  const LANG = LANGUAGES[selectedLanguage];
 
   const handleLogout = async () => {
     try {
@@ -226,8 +318,8 @@ export default function DriverLayout() {
       dispatch(logout());
       Toast.show({
         type: "success",
-        text1: "Logged Out",
-        text2: "Drive safely! 🚗",
+        text1: LANG.auth.loggedOut,
+        text2: LANG.auth.logoutMessage,
         position: "top",
         visibilityTime: 2000,
       });
@@ -236,98 +328,303 @@ export default function DriverLayout() {
       console.error("Logout error:", error);
       Toast.show({
         type: "error",
-        text1: "Error",
-        text2: "Failed to logout. Please try again.",
+        text1: LANG.error,
+        text2: LANG.auth.logoutError,
         position: "top",
       });
     }
   };
 
   return (
-    <Stack
-      screenOptions={{
-        headerStyle: {
-          backgroundColor: "transparent",
-        },
-        headerBackground: () => (
-          <LinearGradient
-            colors={["#3B82F6", "#2563EB", "#1D4ED8"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={{
-              flex: 1,
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.15,
-              shadowRadius: 8,
-              elevation: 8,
-            }}
-          />
-        ),
-        headerTintColor: "#fff",
-        headerTitleStyle: {
-          fontFamily: "Cinzel",
-          fontSize: 20,
-          fontWeight: "700",
-          letterSpacing: 0.5,
-        },
-        headerTitleAlign: "left",
-        headerShadowVisible: true,
-        headerRight: () => (
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <HeaderButton
-              icon="log-out-outline"
-              onPress={handleLogout}
-              variant="danger"
-            />
-          </View>
-        ),
-        animation: "slide_from_right",
-        presentation: "card",
-      }}
+    <LanguageContext.Provider
+      value={{ LANG, selectedLanguage, changeLanguage, setShowLanguageModal }}
     >
-      <Stack.Screen
-        name="index"
-        options={{
-          title: "My Dashboard",
-          headerLeft: () => (
-            <View
+      {/* Language Selection Modal */}
+      <Modal
+        visible={showLanguageModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowLanguageModal(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setShowLanguageModal(false)}
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.5)",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={{
+              backgroundColor: "white",
+              borderRadius: 20,
+              padding: 24,
+              width: "85%",
+              maxWidth: 400,
+            }}
+          >
+            <Text
               style={{
-                flexDirection: "row",
-                alignItems: "center",
-                marginLeft: 4,
+                fontSize: 24,
+                fontWeight: "bold",
+                marginBottom: 20,
+                fontFamily: "Cinzel",
+                color: "#1F2937",
               }}
             >
-              <StatusIndicator status={driverStatus} />
-            </View>
-          ),
-        }}
-      />
-      <Stack.Screen
-        name="shift/active"
-        options={{
-          title: "Active Shift",
-          headerLeft: () => (
-            <View
+              {LANG.language.title}
+            </Text>
+
+            {Object.keys(LANGUAGES).map((lang) => (
+              <TouchableOpacity
+                key={lang}
+                onPress={() => changeLanguage(lang)}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  paddingVertical: 16,
+                  paddingHorizontal: 16,
+                  borderRadius: 12,
+                  marginBottom: 12,
+                  backgroundColor:
+                    selectedLanguage === lang ? "#3B82F6" : "#F3F4F6",
+                }}
+              >
+                {selectedLanguage === lang && (
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={24}
+                    color="#fff"
+                    style={{ marginRight: 12 }}
+                  />
+                )}
+                <Text
+                  style={{
+                    fontSize: 18,
+                    fontFamily: "Poppins",
+                    color: selectedLanguage === lang ? "#fff" : "#1F2937",
+                    fontWeight: selectedLanguage === lang ? "600" : "400",
+                  }}
+                >
+                  {LANGUAGES[lang].language[lang]}
+                </Text>
+              </TouchableOpacity>
+            ))}
+
+            <TouchableOpacity
+              onPress={() => setShowLanguageModal(false)}
               style={{
-                flexDirection: "row",
+                marginTop: 12,
+                paddingVertical: 14,
+                paddingHorizontal: 20,
+                borderRadius: 12,
+                backgroundColor: "#E5E7EB",
                 alignItems: "center",
               }}
             >
-              <ModernBackButton onPress={() => router.back()} />
-            </View>
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontFamily: "Poppins",
+                  color: "#1F2937",
+                  fontWeight: "600",
+                }}
+              >
+                {LANG.cancel}
+              </Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <Stack
+        screenOptions={{
+          headerStyle: {
+            backgroundColor: "transparent",
+          },
+          headerBackground: () => (
+            <LinearGradient
+              colors={["#3B82F6", "#2563EB", "#1D4ED8"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{
+                flex: 1,
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.15,
+                shadowRadius: 8,
+                elevation: 8,
+              }}
+            />
           ),
+          headerTintColor: "#fff",
+          headerTitleStyle: {
+            fontFamily: "Cinzel",
+            fontSize: 20,
+            fontWeight: "700",
+            letterSpacing: 0.5,
+          },
+          headerTitleAlign: "left",
+          headerShadowVisible: true,
           headerRight: () => (
             <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <HeaderButton
+                icon="language-outline"
+                onPress={() => setShowLanguageModal(true)}
+              />
+              <HeaderButton
+                icon="log-out-outline"
+                onPress={handleLogout}
+                variant="danger"
+              />
+            </View>
+          ),
+          animation: "slide_from_right",
+          presentation: "card",
+        }}
+      >
+        <Stack.Screen
+          name="index"
+          options={{
+            title: LANG.dashboard?.title || "Dashboard",
+            headerLeft: () => (
               <View
                 style={{
-                  backgroundColor: "rgba(16, 185, 129, 0.2)",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  marginLeft: 4,
+                }}
+              >
+                <StatusIndicator status={driverStatus} />
+              </View>
+            ),
+          }}
+        />
+        <Stack.Screen
+          name="shift/active"
+          options={{
+            title:
+              LANG.shift?.activeShift || LANG.shift?.active || "Active Shift",
+            headerLeft: () => (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                }}
+              >
+                <ModernBackButton onPress={() => router.back()} />
+              </View>
+            ),
+            headerRight: () => (
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <View
+                  style={{
+                    backgroundColor: "rgba(16, 185, 129, 0.2)",
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    borderRadius: 20,
+                    marginRight: 12,
+                    borderWidth: 1,
+                    borderColor: "rgba(16, 185, 129, 0.3)",
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: "#fff",
+                      fontSize: 11,
+                      fontWeight: "700",
+                      fontFamily: "Poppins",
+                    }}
+                  >
+                    🟢 {LANG.status?.live || "LIVE"}
+                  </Text>
+                </View>
+                <HeaderButton
+                  icon="log-out-outline"
+                  onPress={handleLogout}
+                  variant="danger"
+                />
+              </View>
+            ),
+          }}
+        />
+        <Stack.Screen
+          name="shift/trips"
+          options={{
+            title: LANG.trips?.myTrips || LANG.trips?.title || "My Trips",
+            headerLeft: () => (
+              <ModernBackButton onPress={() => router.back()} />
+            ),
+          }}
+        />
+        <Stack.Screen
+          name="shift/history"
+          options={{
+            title:
+              LANG.shift?.history || LANG.history?.title || "Shift History",
+            headerLeft: () => (
+              <ModernBackButton onPress={() => router.back()} />
+            ),
+          }}
+        />
+        <Stack.Screen
+          name="trip/[id]"
+          options={{
+            title: LANG.trip?.details || LANG.trip?.title || "Trip Details",
+            headerLeft: () => (
+              <ModernBackButton onPress={() => router.back()} />
+            ),
+            headerRight: () => (
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <HeaderButton
+                  icon="map-outline"
+                  onPress={() => {
+                    Toast.show({
+                      type: "info",
+                      text1: LANG.navigation?.title || "Navigation",
+                      text2: LANG.navigation?.opening || "Opening map...",
+                    });
+                  }}
+                />
+                <HeaderButton
+                  icon="call-outline"
+                  onPress={() => {
+                    Toast.show({
+                      type: "info",
+                      text1: LANG.support?.title || "Support",
+                      text2: LANG.support?.calling || "Calling support...",
+                    });
+                  }}
+                />
+                <HeaderButton
+                  icon="log-out-outline"
+                  onPress={handleLogout}
+                  variant="danger"
+                />
+              </View>
+            ),
+          }}
+        />
+        <Stack.Screen
+          name="trip/end"
+          options={{
+            title: LANG.trip?.complete || LANG.trip?.end || "Complete Trip",
+            headerLeft: () => (
+              <ModernBackButton onPress={() => router.back()} />
+            ),
+            headerRight: () => (
+              <View
+                style={{
+                  backgroundColor: "rgba(239, 68, 68, 0.2)",
                   paddingHorizontal: 12,
                   paddingVertical: 6,
                   borderRadius: 20,
                   marginRight: 12,
                   borderWidth: 1,
-                  borderColor: "rgba(16, 185, 129, 0.3)",
+                  borderColor: "rgba(239, 68, 68, 0.3)",
                 }}
               >
                 <Text
@@ -338,99 +635,13 @@ export default function DriverLayout() {
                     fontFamily: "Poppins",
                   }}
                 >
-                  🟢 LIVE
+                  {LANG.trip?.ending || LANG.status?.ending || "ENDING"}
                 </Text>
               </View>
-              <HeaderButton
-                icon="log-out-outline"
-                onPress={handleLogout}
-                variant="danger"
-              />
-            </View>
-          ),
-        }}
-      />
-      <Stack.Screen
-        name="shift/trips"
-        options={{
-          title: "My Trips",
-          headerLeft: () => <ModernBackButton onPress={() => router.back()} />,
-        }}
-      />
-      <Stack.Screen
-        name="shift/history"
-        options={{
-          title: "Shift History",
-          headerLeft: () => <ModernBackButton onPress={() => router.back()} />,
-        }}
-      />
-      <Stack.Screen
-        name="trip/[id]"
-        options={{
-          title: "Trip Details",
-          headerLeft: () => <ModernBackButton onPress={() => router.back()} />,
-          headerRight: () => (
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <HeaderButton
-                icon="map-outline"
-                onPress={() => {
-                  Toast.show({
-                    type: "info",
-                    text1: "Navigation",
-                    text2: "Opening map...",
-                  });
-                }}
-              />
-              <HeaderButton
-                icon="call-outline"
-                onPress={() => {
-                  Toast.show({
-                    type: "info",
-                    text1: "Support",
-                    text2: "Calling support...",
-                  });
-                }}
-              />
-              <HeaderButton
-                icon="log-out-outline"
-                onPress={handleLogout}
-                variant="danger"
-              />
-            </View>
-          ),
-        }}
-      />
-      <Stack.Screen
-        name="trip/end"
-        options={{
-          title: "Complete Trip",
-          headerLeft: () => <ModernBackButton onPress={() => router.back()} />,
-          headerRight: () => (
-            <View
-              style={{
-                backgroundColor: "rgba(239, 68, 68, 0.2)",
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: 20,
-                marginRight: 12,
-                borderWidth: 1,
-                borderColor: "rgba(239, 68, 68, 0.3)",
-              }}
-            >
-              <Text
-                style={{
-                  color: "#fff",
-                  fontSize: 11,
-                  fontWeight: "700",
-                  fontFamily: "Poppins",
-                }}
-              >
-                ⚠️ ENDING
-              </Text>
-            </View>
-          ),
-        }}
-      />
-    </Stack>
+            ),
+          }}
+        />
+      </Stack>
+    </LanguageContext.Provider>
   );
 }

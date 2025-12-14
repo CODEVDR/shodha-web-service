@@ -21,7 +21,7 @@ if (Platform.OS !== "web") {
 import Toast from "react-native-toast-message";
 import * as Location from "expo-location";
 import {
-  ShiftService,
+  AutoShiftService,
   TrackingService,
   OfflineTrackingService,
   TripService,
@@ -53,6 +53,8 @@ export default function DriverActiveShift() {
   const [activeTrip, setActiveTrip] = useState(null);
   const [navigationInstructions, setNavigationInstructions] = useState([]);
   const [currentInstructionIndex, setCurrentInstructionIndex] = useState(0);
+  const [truckData, setTruckData] = useState(null);
+  const [showBreakdownModal, setShowBreakdownModal] = useState(false);
   const webViewRef = useRef(null);
   const fullScreenWebViewRef = useRef(null);
 
@@ -60,14 +62,10 @@ export default function DriverActiveShift() {
     // Restore user auth if not available
     const restoreUserAuth = async () => {
       if (!user) {
-        //console.log("User not available, trying to restore from token...");
         try {
           const authData = await AuthService.restoreUserFromToken();
           if (authData) {
-            //console.log("Restored user from token:", authData.user);
             dispatch(restoreAuth(authData));
-          } else {
-            //console.log("No valid token found");
           }
         } catch (error) {
           console.error("Failed to restore user:", error);
@@ -106,7 +104,6 @@ export default function DriverActiveShift() {
         const hasId = user._id || user.id;
 
         if (!hasId) {
-          //console.log("User object missing ID, attempting to refresh from server...");
           try {
             // Try to refresh user data
             const refreshedAuth = await AuthService.restoreUserFromToken();
@@ -115,7 +112,6 @@ export default function DriverActiveShift() {
               refreshedAuth.user &&
               (refreshedAuth.user._id || refreshedAuth.user.id)
             ) {
-              //console.log("Successfully refreshed user data:",refreshedAuth.user);
               dispatch(restoreAuth(refreshedAuth));
               return; // Exit early, the useEffect will run again with new user
             }
@@ -125,12 +121,8 @@ export default function DriverActiveShift() {
         }
 
         if (hasId) {
-          //console.log("User loaded with ID, reloading shift and trips...");
-          //console.log("User object source debug:", {hasId: !!user._id,hasIdField: !!user.id,idValue: user._id || user.id,fullUser: user,});
           loadActiveShift();
           loadAvailableTrips();
-        } else {
-          //console.log("User object loaded but still missing ID fields afterattempt:",user);
         }
       }
     };
@@ -154,14 +146,60 @@ export default function DriverActiveShift() {
       const driverId = user?._id || user?.id;
       console.log("Using driver ID for shift loading:", driverId);
 
-      const response = await ShiftService.getActiveShift();
+      const response = await AutoShiftService.getMyShift();
       console.log("Active shift response:", JSON.stringify(response, null, 2));
 
       if (response.success && response.data) {
-        setShift(response.data);
+        const shiftData = response.data;
 
-        // Check for active trip (in-progress or paused) - also check available trips
-        const trips = response.data.trips || [];
+        // ✅ Get today's date in YYYY-MM-DD format (IST)
+        const now = new Date();
+        const istDate = new Date(
+          now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+        );
+        const todayStr = `${istDate.getFullYear()}-${String(istDate.getMonth() + 1).padStart(2, "0")}-${String(istDate.getDate()).padStart(2, "0")}`;
+
+        console.log("📅 Today's date (IST):", todayStr);
+        console.log("📅 Shift date from API:", shiftData.shiftDate);
+        console.log("🔍 Shift status from API:", shiftData.status);
+
+        // ✅ CRITICAL CHECKS: Only show shift if ALL conditions are met:
+        // 1. Status is "active"
+        // 2. Shift date matches today
+        // 3. Shift is not completed/cancelled
+        const isActiveStatus = shiftData.status === "active";
+        const isToday = shiftData.shiftDate === todayStr;
+        const isNotCompleted =
+          shiftData.status !== "completed" &&
+          shiftData.status !== "cancelled" &&
+          shiftData.status !== "ended";
+
+        if (!isActiveStatus || !isNotCompleted) {
+          console.log(
+            `❌ Shift status is "${shiftData.status}" (not active) - hiding shift`
+          );
+          setShift(null);
+          setActiveTrip(null);
+          loadAvailableTrips();
+          return;
+        }
+
+        if (!isToday) {
+          console.log(
+            `❌ Shift date "${shiftData.shiftDate}" doesn't match today "${todayStr}" - hiding shift`
+          );
+          setShift(null);
+          setActiveTrip(null);
+          loadAvailableTrips();
+          return;
+        }
+
+        console.log("✅ Shift is active and for today - processing...");
+
+        setShift(shiftData);
+
+        // Check for active trip (in-progress or paused)
+        const trips = shiftData.trips || [];
         let activeTrip = trips.find(
           (t) => t.status === "in-progress" || t.status === "paused"
         );
@@ -200,25 +238,25 @@ export default function DriverActiveShift() {
         }
 
         // Load truck data from shift if available
-        if (response.data.truck) {
+        if (shiftData.truck) {
           const truckId =
-            typeof response.data.truck === "string"
-              ? response.data.truck
-              : response.data.truck._id;
+            typeof shiftData.truck === "string"
+              ? shiftData.truck
+              : shiftData.truck._id;
           loadTruckData(truckId);
         }
 
         // Load actual route if shift exists
-        if (response.data._id) {
-          loadShiftRoute(response.data._id);
+        if (shiftData._id) {
+          loadShiftRoute(shiftData._id);
         }
 
         // Start location tracking if shift is active
-        if (response.data.status === "active") {
+        if (shiftData.status === "active") {
           startLocationTracking();
         }
       } else {
-        //console.log("No active shift found, loading available trips anyway");
+        console.log("No active shift found, loading available trips anyway");
         setShift(null);
         // Still load available trips even without an active shift
         loadAvailableTrips();
@@ -240,12 +278,10 @@ export default function DriverActiveShift() {
   const loadTruckData = async (truckId) => {
     try {
       if (!truckId) return;
-      //console.log("Loading truck data for ID:", truckId);
 
       const response = await TruckService.getTruckById(truckId);
       if (response.success && response.data) {
         setTruckData(response.data);
-        //console.log("Truck data loaded:", response.data.registrationNumber);
       }
     } catch (error) {
       console.error("Failed to load truck data:", error);
@@ -254,29 +290,17 @@ export default function DriverActiveShift() {
 
   const loadAvailableTrips = async () => {
     try {
-      //console.log("Loading available trips for driver...");
-      // Fetch all trips available for this driver (assigned, pending, planned)
-      // Backend automatically filters by driver ID for driver role
       const response = await TripService.getDriverAvailableTrips();
-      //console.log("Available trips response:",JSON.stringify(response, null, 2));
 
       if (response.success && response.data) {
-        //console.log("=== TRIP FILTERING DEBUG ===");
-        //console.log("Current user object:", JSON.stringify(user, null, 2));
-        //console.log("Current driver ID (_id):", user?._id);
-        //console.log("Current driver ID (id):", user?.id);
-        //console.log("Total trips received:", response.data.length);
-
         // Check if user is available
         if (!user || (!user._id && !user.id)) {
-          //console.log("❌ User not loaded yet - skipping trip filtering");
+          console.log("❌ User not loaded yet - skipping trip filtering");
           setAvailableTrips([]);
           return;
         }
 
         const driverId = user._id || user.id;
-        //console.log("✅ User loaded, proceeding with filtering...");
-        //console.log("Using driver ID:", driverId);
 
         // Filter trips for this driver - include in-progress trips
         const availableTripsData = response.data.filter((trip) => {
@@ -286,13 +310,11 @@ export default function DriverActiveShift() {
           // Check drivers array format
           if (trip.drivers && Array.isArray(trip.drivers)) {
             isAssignedToDriver = trip.drivers.some((d) => d._id === driverId);
-            //console.log(`Trip ${trip._id.slice(-6)} drivers check:`,trip.drivers.map((d) => d._id),"vs current:",driverId,"match:",isAssignedToDriver);
           }
 
           // Check legacy driver format
           if (!isAssignedToDriver && trip.driver && trip.driver._id) {
             isAssignedToDriver = trip.driver._id === driverId;
-            //console.log(`Trip ${trip._id.slice(-6)} legacy driver check:`,trip.driver._id,"vs current:",driverId,"match:",isAssignedToDriver);
           }
 
           // Include trips that are not completed/cancelled/expired
@@ -301,27 +323,22 @@ export default function DriverActiveShift() {
             trip.status !== "cancelled" &&
             trip.status !== "expired";
 
-          //console.log(`Trip ${trip._id.slice(-6)} final result:`,"assigned:",isAssignedToDriver,"validStatus:",isValidStatus,"status:",trip.status);
-
           return isAssignedToDriver && isValidStatus;
         });
-        //console.log("Filtered available trips:", availableTripsData.length);
-        //console.log("Trip statuses:",availableTripsData.map((t) => ({ id: t._id, status: t.status })));
+
         setAvailableTrips(availableTripsData);
       } else {
-        //console.log("No trips in response or request failed");
         setAvailableTrips([]);
       }
     } catch (error) {
       console.error("Failed to load trips:", error);
     }
   };
+
   const startTrip = async (tripId) => {
     try {
       setLoading(true);
-      //console.log("Starting trip with ID:", tripId);
       const response = await TripService.startTrip(tripId);
-      //console.log("Start trip response:", JSON.stringify(response, null, 2));
 
       if (response.success) {
         const tripData = response.data;
@@ -331,8 +348,6 @@ export default function DriverActiveShift() {
 
         // Extract and set navigation data if available
         if (tripData.route) {
-          //console.log("Setting up navigation with route data:", {pathPoints: tripData.route.path?.length || 0,instructions: tripData.route.instructions?.length || 0,});
-
           setPlannedRoute(tripData.route.path || []);
           setNavigationInstructions(tripData.route.instructions || []);
           setCurrentInstructionIndex(0);
@@ -368,7 +383,6 @@ export default function DriverActiveShift() {
   const updateTripStatus = async (tripId, newStatus) => {
     try {
       setLoading(true);
-      //console.log("Updating trip status:", tripId, newStatus);
 
       let response;
       if (newStatus === "paused") {
@@ -380,8 +394,6 @@ export default function DriverActiveShift() {
       } else {
         throw new Error("Invalid trip status");
       }
-
-      //console.log("Update trip status response:", response);
 
       if (response.success) {
         // Update the active trip status locally
@@ -712,9 +724,6 @@ export default function DriverActiveShift() {
     );
   };
 
-  const [showBreakdownModal, setShowBreakdownModal] = useState(false);
-  const [truckData, setTruckData] = useState(null);
-
   const breakdownTypes = [
     {
       id: "engine",
@@ -886,7 +895,6 @@ export default function DriverActiveShift() {
   };
 
   const updateMapWithRoute = (routePoints) => {
-    //console.log("Updating map with route points:", routePoints.length);
     const jsCode = `
       if (window.updatePlannedRoute) {
         window.updatePlannedRoute(${JSON.stringify(routePoints)});
@@ -1794,31 +1802,6 @@ export default function DriverActiveShift() {
             </Text>
           </TouchableOpacity>
         </View>
-
-        {/* Navigation Debug Panel (remove in production) */}
-        {__DEV__ && activeTrip && (
-          <View className="mx-6 mb-4 bg-yellow-50 border border-yellow-200 rounded-2xl p-4">
-            <Text className="text-yellow-800 font-bold mb-2">
-              Navigation Debug
-            </Text>
-            <Text className="text-xs text-yellow-700 mb-1">
-              Trip ID: {activeTrip._id}
-            </Text>
-            <Text className="text-xs text-yellow-700 mb-1">
-              Route Points: {plannedRoute?.length || 0}
-            </Text>
-            <Text className="text-xs text-yellow-700 mb-1">
-              Instructions: {navigationInstructions?.length || 0}
-            </Text>
-            <Text className="text-xs text-yellow-700 mb-1">
-              Current Step: {currentInstructionIndex + 1} /{" "}
-              {navigationInstructions?.length || 0}
-            </Text>
-            <Text className="text-xs text-yellow-700">
-              Has Route Data: {activeTrip.route ? "Yes" : "No"}
-            </Text>
-          </View>
-        )}
 
         {/* Shift Details */}
         <View className="mx-6 mb-6 bg-gray-50 border border-gray-200 rounded-2xl p-5">

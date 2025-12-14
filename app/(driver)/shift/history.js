@@ -1,8 +1,10 @@
 import { View, Text, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useLanguage } from "../_layout";
 
 export default function ShiftHistory() {
+  const { LANG } = useLanguage();
   const history = [
     {
       id: 1,
@@ -35,7 +37,7 @@ export default function ShiftHistory() {
             className="text-2xl text-gray-800 mb-6"
             style={{ fontFamily: "Cinzel" }}
           >
-            Shift History
+            {LANG.shift.history}
           </Text>
 
           {history.map((shift) => (
@@ -55,7 +57,7 @@ export default function ShiftHistory() {
                     className="text-green-600 text-xs font-semibold"
                     style={{ fontFamily: "Poppins" }}
                   >
-                    Completed
+                    {LANG.shift.completed}
                   </Text>
                 </View>
               </View>
@@ -67,7 +69,7 @@ export default function ShiftHistory() {
                     className="text-gray-600 ml-3"
                     style={{ fontFamily: "Poppins" }}
                   >
-                    Duration: {shift.duration}
+                    {LANG.shift.duration}: {shift.duration}
                   </Text>
                 </View>
                 <View className="flex-row items-center py-2">
@@ -76,7 +78,7 @@ export default function ShiftHistory() {
                     className="text-gray-600 ml-3"
                     style={{ fontFamily: "Poppins" }}
                   >
-                    Trips: {shift.trips}
+                    {LANG.shift.trips}: {shift.trips}
                   </Text>
                 </View>
                 <View className="flex-row items-center py-2">
@@ -85,7 +87,7 @@ export default function ShiftHistory() {
                     className="text-gray-600 ml-3"
                     style={{ fontFamily: "Poppins" }}
                   >
-                    Distance: {shift.distance}
+                    {LANG.shift.distance}: {shift.distance}
                   </Text>
                 </View>
               </View>

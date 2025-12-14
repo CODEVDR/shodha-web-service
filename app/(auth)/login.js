@@ -111,6 +111,16 @@ export default function LoginScreen() {
     }
   };
 
+  const fillAdminCredentials = () => {
+    setUsername("admin");
+    setPassword("admin123");
+  };
+
+  const fillDriverCredentials = () => {
+    setUsername("driver1");
+    setPassword("driver123");
+  };
+
   return (
     <SafeAreaView className="flex-1 bg-white">
       <KeyboardAvoidingView
@@ -125,6 +135,7 @@ export default function LoginScreen() {
           }}
           keyboardShouldPersistTaps="handled"
         >
+          {/* Desktop: Two-column layout, Mobile: Single column */}
           <View
             style={{
               flexDirection: isDesktop ? "row" : "column",
@@ -133,7 +144,7 @@ export default function LoginScreen() {
               alignItems: isDesktop ? "center" : "stretch",
             }}
           >
-            {/* Left Section - Logo & Branding */}
+            {/* Left Section - Logo & Branding (Desktop side panel, Mobile top) */}
             <View
               style={{
                 width: isDesktop ? "50%" : "100%",
@@ -175,6 +186,7 @@ export default function LoginScreen() {
                 Fleet Tracking System
               </Text>
 
+              {/* Desktop only - additional branding text */}
               {isDesktop && (
                 <Text
                   style={{
@@ -223,7 +235,7 @@ export default function LoginScreen() {
                   Sign in to continue to your account
                 </Text>
 
-                {/* Username */}
+                {/* Username Input */}
                 <View style={{ marginBottom: 20 }}>
                   <Text
                     style={{
@@ -267,7 +279,7 @@ export default function LoginScreen() {
                   </View>
                 </View>
 
-                {/* Password */}
+                {/* Password Input */}
                 <View style={{ marginBottom: 24 }}>
                   <Text
                     style={{
@@ -353,6 +365,104 @@ export default function LoginScreen() {
                     {isLoading ? "Logging in..." : "Login"}
                   </Text>
                 </TouchableOpacity>
+
+                {/* Demo Credentials */}
+                {/* <View
+                  style={{
+                    marginTop: 40,
+                    paddingTop: 32,
+                    borderTopWidth: 1,
+                    borderTopColor: "#E5E7EB",
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: "Poppins",
+                      fontSize: 13,
+                      color: "#6B7280",
+                      textAlign: "center",
+                      marginBottom: 16,
+                      fontWeight: "500",
+                    }}
+                  >
+                    Demo Credentials
+                  </Text>
+                  <View
+                    style={{
+                      flexDirection: isDesktop || isTablet ? "row" : "column",
+                      justifyContent: "space-around",
+                      gap: 12,
+                    }}
+                  >
+                    <TouchableOpacity
+                      style={{
+                        flex: isDesktop || isTablet ? 1 : undefined,
+                        backgroundColor: "white",
+                        borderWidth: 2,
+                        borderColor: "#D4AF37",
+                        borderRadius: 12,
+                        padding: 16,
+                        alignItems: "center",
+                      }}
+                      onPress={fillAdminCredentials}
+                    >
+                      <Text
+                        style={{
+                          fontFamily: "Poppins",
+                          fontSize: 15,
+                          color: "#D4AF37",
+                          fontWeight: "600",
+                        }}
+                      >
+                        Admin
+                      </Text>
+                      <Text
+                        style={{
+                          fontFamily: "Poppins",
+                          fontSize: 12,
+                          color: "#6B7280",
+                          marginTop: 4,
+                        }}
+                      >
+                        admin / admin123
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={{
+                        flex: isDesktop || isTablet ? 1 : undefined,
+                        backgroundColor: "white",
+                        borderWidth: 2,
+                        borderColor: "#D4AF37",
+                        borderRadius: 12,
+                        padding: 16,
+                        alignItems: "center",
+                      }}
+                      onPress={fillDriverCredentials}
+                    >
+                      <Text
+                        style={{
+                          fontFamily: "Poppins",
+                          fontSize: 15,
+                          color: "#D4AF37",
+                          fontWeight: "600",
+                        }}
+                      >
+                        Driver
+                      </Text>
+                      <Text
+                        style={{
+                          fontFamily: "Poppins",
+                          fontSize: 12,
+                          color: "#6B7280",
+                          marginTop: 4,
+                        }}
+                      >
+                        driver1 / driver123
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View> */}
               </View>
             </View>
           </View>
